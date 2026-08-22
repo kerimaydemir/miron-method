@@ -1,0 +1,56 @@
+schema_version: dependency-ledger.v1
+verified_at: "2026-08-22"
+sources:
+  npm: https://registry.npmjs.org
+  pypi: https://pypi.org
+  github_releases: https://api.github.com/repos
+  live_fixtures: https://api.football-data.org/v4
+runtime:
+  node: "24-bookworm-slim"
+  python: "3.13-slim-bookworm"
+  postgresql: "17"
+  temporal_server: "1.29.7@sha256:f14912b699cf73015ad5c4fc18d522d4b014db90e794039214dfb7c022c2644f"
+  temporal_ui: "2.53.3@sha256:eef301146e60fad34b47adaecfae4149016e34b2d44ba94fca5fd8e5441f182a"
+  minio: "sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e"
+application:
+  next: "16.3.2"
+  react: "19.2.8"
+  fastapi: "0.141.1"
+  pydantic: "2.13.4"
+  temporalio: "1.31.0"
+  types_pyyaml: "6.0.12.20260815"
+  boto3_stubs: "1.43.78"
+models:
+  verified_at: "2026-08-22"
+  verification_expires_at: "2026-09-22"
+  provider: google_gemini
+  routes:
+    grounded_research: "gemini-3.5-flash"
+    normalization: "gemini-3.5-flash-lite"
+    critic: "gemini-3.6-flash"
+    committee: "gemini-3.5-flash"
+  sources:
+    models: https://ai.google.dev/gemini-api/docs/models
+    committee: https://ai.google.dev/gemini-api/docs/models/gemini-3.5-flash
+    pricing: https://ai.google.dev/gemini-api/docs/pricing
+fixtures:
+  verified_at: "2026-08-22"
+  primary:
+    provider: football_data_org
+    authentication: x_auth_token
+    refresh_seconds: 300
+    competitions: [PL, PD, BL1, SA, FL1, DED, PPL]
+    documentation: https://www.football-data.org/documentation/quickstart
+  fallback:
+    provider: openligadb
+    license: ODbL
+    authentication: none
+    refresh_seconds: 60
+    documentation: https://api.openligadb.de/index.html
+odds:
+  verified_at: "2026-08-22"
+  provider: the_odds_api
+  authentication: api_key_optional_runtime
+  regions: [eu]
+  markets: [h2h]
+  documentation: https://the-odds-api.com/liveapi/guides/v4/index.html

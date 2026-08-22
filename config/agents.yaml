@@ -1,0 +1,45 @@
+schema_version: agent-registry.v1
+roles:
+  A00: {stage: S00, name: Preflight Controller, route: deterministic, prediction_authorized: false, post_match_access: false}
+  A01: {stage: S01, name: Current Research Scout, route: grounded_research, prediction_authorized: false, post_match_access: false}
+  A02: {stage: S02, name: Source Verification Agent, route: normalization, prediction_authorized: false, post_match_access: false}
+  A03: {stage: S03, name: Claim Normalizer, route: normalization, prediction_authorized: false, post_match_access: false}
+  A04: {stage: S04, name: Contradiction and Freshness Judge, route: normalization, prediction_authorized: false, post_match_access: false}
+  A05: {stage: S05, name: Statistical Analyst, route: deterministic, prediction_authorized: false, post_match_access: false}
+  A06: {stage: S06, name: Player and Squad Analyst, route: normalization, prediction_authorized: false, post_match_access: false}
+  A07: {stage: S07, name: Tactical Analyst, route: normalization, prediction_authorized: false, post_match_access: false}
+  A08: {stage: S08, name: Form Analyst, route: deterministic, prediction_authorized: false, post_match_access: false}
+  A09: {stage: S09, name: Fatigue and Schedule Analyst, route: deterministic, prediction_authorized: false, post_match_access: false}
+  A10: {stage: S10, name: Goalkeeper Analyst, route: normalization, prediction_authorized: false, post_match_access: false}
+  A11: {stage: S11, name: Set-Piece Analyst, route: normalization, prediction_authorized: false, post_match_access: false}
+  A12: {stage: S12, name: Environment Analyst, route: deterministic, prediction_authorized: false, post_match_access: false}
+  A13: {stage: S13, name: Odds and Market Intelligence Analyst, route: deterministic, prediction_authorized: false, post_match_access: false}
+  A14: {stage: S14, name: Market Movement Explainer, route: grounded_research, prediction_authorized: false, post_match_access: false}
+  A15: {stage: S15, name: Quant Model Ensemble, route: deterministic, prediction_authorized: false, post_match_access: false}
+  A16: {stage: S16, name: Historical Similarity Analyst, route: deterministic, prediction_authorized: false, post_match_access: false}
+  A17: {stage: S17, name: Statistics Critic, route: critic, prediction_authorized: false, post_match_access: false}
+  A18: {stage: S17, name: Evidence Critic, route: critic, prediction_authorized: false, post_match_access: false}
+  A19: {stage: S17, name: Tactical Critic, route: critic, prediction_authorized: false, post_match_access: false}
+  A20: {stage: S17, name: Market Critic, route: critic, prediction_authorized: false, post_match_access: false}
+  A21: {stage: S18, name: Gemini Evidence Auditor, route: committee, prediction_authorized: false, post_match_access: false}
+  A22: {stage: S19, name: Gemini Tactical Synthesizer, route: committee, prediction_authorized: false, post_match_access: false}
+  A23: {stage: S20, name: Gemini Player and Squad Synthesizer, route: committee, prediction_authorized: false, post_match_access: false}
+  A24: {stage: S21, name: Gemini Quant and Market Interpreter, route: committee, prediction_authorized: false, post_match_access: false}
+  A25: {stage: S22, name: Home Win Steelman, route: normalization, prediction_authorized: false, post_match_access: false}
+  A26: {stage: S23, name: Draw Steelman, route: normalization, prediction_authorized: false, post_match_access: false}
+  A27: {stage: S24, name: Away Win Steelman, route: normalization, prediction_authorized: false, post_match_access: false}
+  A28: {stage: S25, name: Scenario Red Team, route: critic, prediction_authorized: false, post_match_access: false}
+  A29: {stage: S26, name: Scenario Engine, route: normalization, prediction_authorized: false, post_match_access: false}
+  A30: {stage: S27, name: Chief Analyst, route: committee, prediction_authorized: true, post_match_access: false}
+  A31: {stage: S28, name: Final Critic, route: critic, prediction_authorized: false, post_match_access: false}
+  A32: {stage: S29, name: Chief Revision, route: committee, prediction_authorized: true, post_match_access: false}
+  A33: {stage: S30, name: Prediction Lock Controller, route: deterministic, prediction_authorized: false, post_match_access: false}
+  A34: {stage: S31, name: Live Market Collector, route: deterministic, prediction_authorized: false, post_match_access: true}
+  A35: {stage: S32, name: Post-Match Data Agent, route: deterministic, prediction_authorized: false, post_match_access: true}
+  A36: {stage: S33, name: Post-Match Autopsy Analyst, route: normalization, prediction_authorized: false, post_match_access: true}
+  A37: {stage: S34, name: Luck and Variance Analyst, route: deterministic, prediction_authorized: false, post_match_access: true}
+  A38: {stage: S35, name: Thesis Reliability Scorer, route: deterministic, prediction_authorized: false, post_match_access: true}
+  A39: {stage: S35, name: Agent and Source Reliability Scorer, route: deterministic, prediction_authorized: false, post_match_access: true}
+  A40: {stage: S36, name: Lesson Extractor, route: normalization, prediction_authorized: false, post_match_access: true}
+  A41: {stage: S37, name: Lesson Validator, route: critic, prediction_authorized: false, post_match_access: true}
+  A42: {stage: S38, name: Case Memory Curator, route: deterministic, prediction_authorized: false, post_match_access: true}

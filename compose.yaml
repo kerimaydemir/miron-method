@@ -1,0 +1,223 @@
+name: miron-baba-ai
+
+x-api-image: &api-image
+  image: miron-baba-ai-api:local
+  build:
+    context: .
+    dockerfile: apps/api/Dockerfile
+    target: development
+  env_file: [.env]
+  init: true
+  networks: [miron-baba-ai]
+
+services:
+  init-env:
+    image: busybox:1.37.0
+    working_dir: /workspace
+    volumes: ["./:/workspace"]
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        if [ -e .env ]; then echo '.env already exists; refusing to overwrite' >&2; exit 1; fi
+        cp .env.example .env
+    networks: [miron-baba-ai]
+
+  postgres:
+    image: pgvector/pgvector:pg17-bookworm
+    environment:
+      POSTGRES_DB: miron_baba_ai
+      POSTGRES_USER: miron_baba_ai
+      POSTGRES_PASSWORD: local_only
+    volumes: ["postgres-data:/var/lib/postgresql/data"]
+    ports: ["5432:5432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U miron_baba_ai -d miron_baba_ai"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [miron-baba-ai]
+
+  redis:
+    image: redis:7.4-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes: ["redis-data:/data"]
+    ports: ["6379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [miron-baba-ai]
+
+  temporal:
+    image: temporalio/auto-setup@sha256:f14912b699cf73015ad5c4fc18d522d4b014db90e794039214dfb7c022c2644f
+    environment:
+      DB: postgres12
+      DB_PORT: 5432
+      POSTGRES_USER: miron_baba_ai
+      POSTGRES_PWD: local_only
+      POSTGRES_SEEDS: postgres
+    depends_on:
+      postgres: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "tctl", "--address", "temporal:7233", "cluster", "health"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    networks: [miron-baba-ai]
+
+  temporal-ui:
+    image: temporalio/ui@sha256:eef301146e60fad34b47adaecfae4149016e34b2d44ba94fca5fd8e5441f182a
+    environment: { TEMPORAL_ADDRESS: temporal:7233 }
+    ports: ["8080:8080"]
+    depends_on:
+      temporal: { condition: service_healthy }
+    networks: [miron-baba-ai]
+
+  temporal-init:
+    image: temporalio/auto-setup@sha256:f14912b699cf73015ad5c4fc18d522d4b014db90e794039214dfb7c022c2644f
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        tctl --address temporal:7233 --namespace miron-baba-ai namespace describe >/dev/null 2>&1 ||
+        tctl --address temporal:7233 --namespace miron-baba-ai namespace register --retention 7
+    depends_on:
+      temporal: { condition: service_healthy }
+    restart: "no"
+    networks: [miron-baba-ai]
+
+  minio:
+    image: minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: miron_baba_ai_local
+      MINIO_ROOT_PASSWORD: local_minio_secret_change_me
+    volumes: ["minio-data:/data"]
+    ports: ["9000:9000", "9001:9001"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    networks: [miron-baba-ai]
+
+  migrate:
+    <<: *api-image
+    command: ["alembic", "-c", "alembic.ini", "upgrade", "head"]
+    volumes:
+      - "./apps/api:/workspace/apps/api"
+    depends_on:
+      postgres: { condition: service_healthy }
+    restart: "no"
+
+  api:
+    <<: *api-image
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    volumes:
+      - "./apps/api:/workspace/apps/api"
+      - "./config:/workspace/config:ro"
+    ports: ["8000:8000"]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+      temporal-init: { condition: service_completed_successfully }
+      minio: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health/ready')"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  worker:
+    <<: *api-image
+    command: ["python", "-m", "app.worker"]
+    volumes:
+      - "./apps/api:/workspace/apps/api"
+      - "./config:/workspace/config:ro"
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+      temporal-init: { condition: service_completed_successfully }
+      minio: { condition: service_healthy }
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      target: development
+    env_file: [.env]
+    init: true
+    working_dir: /workspace/apps/web
+    command: ["node_modules/.bin/next", "dev", "--hostname", "0.0.0.0"]
+    volumes:
+      - "./apps/web:/workspace/apps/web"
+      - "web-app-node-modules:/workspace/apps/web/node_modules"
+    ports: ["3000:3000"]
+    depends_on:
+      api: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    networks: [miron-baba-ai]
+
+  toolbox:
+    <<: *api-image
+    profiles: [tools]
+    working_dir: /workspace
+    volumes: ["./:/workspace"]
+    entrypoint: ["sh", "scripts/toolbox"]
+
+  lockfile:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      target: development
+    profiles: [tools]
+    volumes: ["./:/repo"]
+    entrypoint: ["sh", "-c"]
+    command: ["cp /workspace/pnpm-lock.yaml /repo/pnpm-lock.yaml"]
+
+  test-api:
+    <<: *api-image
+    profiles: [test]
+    command: ["python", "-m", "pytest", "-q"]
+    environment:
+      APP_ENV: test
+      PERSISTENCE_ENABLED: "false"
+      GEMINI_ENABLED: "false"
+      LIVE_FIXTURES_ENABLED: "false"
+      GEMINI_API_KEY: ""
+      THE_ODDS_API_KEY: ""
+      API_FOOTBALL_API_KEY: ""
+      API_FOOTBALL_CURRENT_ODDS_ENABLED: "false"
+      RAPIDAPI_KEY: ""
+      FOOTBALL_DATA_API_KEY: ""
+    volumes:
+      - "./apps/api:/workspace/apps/api"
+      - "./config:/workspace/config:ro"
+
+  test-web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      target: development
+    profiles: [test]
+    working_dir: /workspace/apps/web
+    command: ["node_modules/.bin/vitest", "run"]
+    volumes:
+      - "./apps/web:/workspace/apps/web"
+      - "web-test-app-node-modules:/workspace/apps/web/node_modules"
+    networks: [miron-baba-ai]
+
+networks:
+  miron-baba-ai:
+    name: miron-baba-ai
+
+volumes:
+  postgres-data:
+  redis-data:
+  minio-data:
+  web-app-node-modules:
+  web-test-app-node-modules:

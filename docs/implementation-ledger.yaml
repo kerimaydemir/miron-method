@@ -1,0 +1,225 @@
+schema_version: implementation-ledger.v1
+product: MİRON BABA AI
+entries:
+  - requirement_id: INV-001
+    phase: P01
+    implementation:
+      - apps/api/app/domain/time_window.py
+    tests:
+      - apps/api/tests/domain/test_time_window.py
+    evidence: []
+    status: implemented_unverified_runtime
+  - requirement_id: INV-041
+    phase: P00
+    implementation:
+      - compose.yaml
+      - apps/api/Dockerfile
+      - apps/web/Dockerfile
+    tests:
+      - scripts/verify-docker-contract.sh
+    evidence: []
+    status: implemented_unverified_runtime
+  - requirement_id: INV-042
+    phase: P00
+    implementation:
+      - apps/api/app/settings.py
+      - apps/web/app/layout.tsx
+    tests:
+      - apps/api/tests/test_health.py
+    evidence: []
+    status: implemented_unverified_runtime
+  - requirement_id: INV-002
+    phase: P01
+    implementation: [apps/api/app/domain/fixtures.py, apps/api/app/infrastructure/mock_fixture_provider.py]
+    tests: [apps/api/tests/test_scans.py]
+    evidence: []
+    status: implemented_unverified_runtime
+  - requirement_id: INV-010
+    phase: P02
+    implementation: [apps/api/app/application/scans.py, apps/api/app/api/scans.py]
+    tests: [apps/api/tests/test_scans.py]
+    evidence: []
+    status: implemented_unverified_runtime
+  - requirement_id: INV-004
+    phase: P12
+    implementation: [apps/api/migrations/versions/20260822_0001_core.py]
+    tests: []
+    evidence: []
+    status: implemented_unverified_runtime
+  - requirement_id: INV-019
+    phase: P04
+    implementation: [apps/api/migrations/versions/20260822_0001_core.py]
+    tests: []
+    evidence: []
+    status: implemented_unverified_runtime
+  - requirement_id: INV-033
+    phase: P03
+    implementation: [apps/api/app/api/fixtures.py, apps/web/features/search/fixture-search.tsx]
+    tests: [apps/api/tests/test_fixture_search.py]
+    evidence: []
+    status: implemented_unverified_runtime
+  - requirement_id: INV-043
+    phase: P11
+    implementation: [apps/api/app/domain/analysis.py, apps/api/app/application/analysis_runs.py]
+    tests: [apps/api/tests/test_analysis_runs.py]
+    evidence: []
+    status: implemented_unverified_runtime
+  - requirement_id: INV-003
+    phase: P05
+    implementation: [apps/api/app/domain/evidence.py]
+    tests: [apps/api/tests/domain/test_evidence.py]
+    evidence: []
+    status: implemented_unverified_runtime
+  - requirement_id: INV-027
+    phase: P07
+    implementation: [apps/api/app/domain/quant.py]
+    tests: [apps/api/tests/domain/test_quant.py]
+    evidence: []
+    status: implemented_unverified_runtime
+  - requirement_id: INV-006
+    phase: P00
+    implementation: [apps/api/app/domain/registries.py, config/models.yaml]
+    tests: [apps/api/tests/domain/test_registries.py]
+    evidence: []
+    status: implemented_unverified_runtime
+  - requirement_id: INV-008
+    phase: P00
+    implementation: [apps/api/app/domain/registries.py, config/providers.yaml]
+    tests: [apps/api/tests/domain/test_registries.py]
+    evidence: []
+    status: implemented_unverified_runtime
+  - requirement_id: INV-009
+    phase: P04
+    implementation: [apps/api/app/domain/budget.py]
+    tests: [apps/api/tests/domain/test_budget.py]
+    evidence: []
+    status: implemented_unverified_runtime
+  - requirement_id: DOD-012
+    phase: P12
+    implementation:
+      - apps/api/app/infrastructure/analysis_repository.py
+      - apps/api/app/infrastructure/lock_object_store.py
+      - apps/api/migrations/versions/20260822_0001_core.py
+    tests: [apps/api/tests/test_analysis_runs.py]
+    evidence:
+      - live_minio_object_sha256_equals_prediction_lock_sha256
+      - postgres_trigger_rejected_prediction_lock_update
+      - api_restart_reloaded_locked_run_and_31_stages
+    status: verified_runtime
+  - requirement_id: DOD-013
+    phase: P12
+    implementation: [apps/api/app/api/analysis_runs.py]
+    tests: [apps/api/tests/test_analysis_runs.py]
+    evidence: [json_and_markdown_export_contracts_pass]
+    status: verified_tests
+  - requirement_id: DOD-014
+    phase: P13
+    implementation:
+      - apps/api/app/domain/post_match.py
+      - apps/api/app/application/post_match.py
+      - apps/api/app/infrastructure/post_match_repository.py
+      - apps/api/migrations/versions/20260822_0003_post_match.py
+    tests:
+      - apps/api/tests/domain/test_post_match.py
+      - apps/api/tests/test_analysis_runs.py
+    evidence:
+      - live_postgres_result_autopsy_six_variance_rows_lesson_and_case
+      - live_autopsy_reloaded_through_api
+    status: verified_runtime
+  - requirement_id: DOD-015
+    phase: P13
+    implementation:
+      - apps/api/app/domain/analysis.py
+      - docs/adr/adr-013-post-match-separation.md
+    tests: [apps/api/tests/test_analysis_runs.py]
+    evidence: [pre_match_manifest_exactly_unchanged_after_post_match]
+    status: verified_tests
+  - requirement_id: EXEC-0041
+    phase: P14
+    implementation: [apps/api/app/domain/backtest.py]
+    tests: [apps/api/tests/domain/test_backtest.py]
+    evidence: [walk_forward_order_and_named_leakage_sentinels_pass]
+    status: verified_tests
+  - requirement_id: P15-HARDENING
+    phase: P15
+    implementation:
+      - apps/api/app/observability.py
+      - SECURITY.md
+      - docs/runbooks/local-pilot.md
+    tests: [apps/api/tests/test_operational_hardening.py]
+    evidence: [correlation_headers_metrics_size_limit_and_redaction_tests_pass]
+    status: verified_tests
+  - requirement_id: GEMINI-ONLY-ROUTING
+    phase: P06-P11
+    implementation:
+      - config/models.yaml
+      - config/agents.yaml
+      - apps/api/app/application/gemini_analysis.py
+      - apps/api/app/infrastructure/gemini_client.py
+      - apps/api/app/application/analysis_runs.py
+      - apps/api/migrations/versions/20260822_0004_gemini_runtime.py
+      - docs/adr/adr-014-gemini-only-model-routing.md
+    tests:
+      - apps/api/tests/application/test_gemini_analysis.py
+      - apps/api/tests/domain/test_registries.py
+      - apps/api/tests/infrastructure/test_gemini_client.py
+    evidence:
+      - all_model_registry_routes_use_google_gemini
+      - structured_output_adapter_contract_passes
+      - live_four_model_analysis_provider_google_gemini_probability_sum_one
+      - live_run_cost_0_025132_usd
+      - api_restart_restored_gemini_models_s27_summary_and_lock_sha256
+    status: verified_runtime
+  - requirement_id: UI-GEMINI-SIMPLIFICATION
+    phase: P11
+    implementation:
+      - apps/web/features/scan/dashboard.tsx
+      - apps/web/features/analysis/run-view.tsx
+      - apps/web/app/globals.css
+    tests:
+      - apps/web/features/scan/types.test.ts
+      - apps/web/app/loading.test.tsx
+    evidence:
+      - desktop_browser_scan_analysis_audit_and_lock_pass
+      - mobile_390px_browser_no_horizontal_overflow
+      - browser_console_zero_errors_zero_warnings
+      - live_browser_scan_real_four_model_analysis_audit_and_sha256_lock_pass
+      - production_next_build_pass
+    status: verified_runtime
+  - requirement_id: LIVE-FIXTURE-FEED
+    phase: P01-P03
+    implementation:
+      - apps/api/app/infrastructure/openligadb_provider.py
+      - apps/api/app/infrastructure/fixture_runtime.py
+      - apps/api/app/application/scans.py
+      - apps/api/app/infrastructure/analysis_repository.py
+      - apps/web/features/scan/dashboard.tsx
+    tests:
+      - apps/api/tests/infrastructure/test_openligadb_provider.py
+      - apps/api/tests/test_fixture_search.py
+    evidence:
+      - openligadb_source_status_live_with_observed_at
+      - live_three_day_scan_returned_34_real_fixtures
+      - openligadb_fixture_completed_four_model_gemini_analysis
+      - live_fixture_analysis_persisted_and_sha256_locked
+    status: verified_runtime
+  - requirement_id: AUTO-COUPON-FUNNEL
+    phase: P02-P13
+    implementation:
+      - apps/api/app/domain/auto_coupon.py
+      - apps/api/app/application/auto_coupons.py
+      - apps/api/app/application/gemini_coupon_funnel.py
+      - apps/api/app/infrastructure/the_odds_api_provider.py
+      - apps/api/app/infrastructure/auto_coupon_repository.py
+      - apps/api/migrations/versions/20260822_0005_auto_coupons.py
+      - apps/web/app/auto/page.tsx
+      - apps/web/features/auto-coupon/auto-coupon-dashboard.tsx
+    tests:
+      - apps/api/tests/domain/test_auto_coupon.py
+      - apps/api/tests/infrastructure/test_the_odds_api_provider.py
+    evidence:
+      - top_eight_allowlist_excludes_mexico_and_colombia
+      - bookmaker_average_and_proportional_overround_test_pass
+      - deterministic_ten_to_five_to_three_contract_pass
+      - single_double_treble_probability_math_pass
+    status: implemented_pending_live_funnel_acceptance

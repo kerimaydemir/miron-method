@@ -1,0 +1,50 @@
+schema_version: provider-registry.v1
+providers:
+  google_gemini:
+    provider_type: model
+    enabled: true
+    approval_status: approved_by_user
+    allowed_methods: [POST]
+    forbidden_actions: [bet_placement, account_automation, restricted_scraping]
+  mock_fixture:
+    provider_type: fixture
+    enabled: true
+    approval_status: mock_only
+    allowed_methods: [GET]
+    forbidden_actions: [bet_placement, account_automation, restricted_scraping]
+  openligadb:
+    provider_type: fixture
+    enabled: true
+    approval_status: open_odbl_read_api
+    allowed_methods: [GET]
+    forbidden_actions: [bet_placement, account_automation, restricted_scraping]
+  football_data:
+    provider_type: fixture
+    enabled: true
+    approval_status: user_requested_authenticated_read_api
+    allowed_methods: [GET]
+    forbidden_actions: [bet_placement, account_automation, restricted_scraping]
+  the_odds_api:
+    provider_type: odds
+    enabled: true
+    approval_status: user_requested_read_only_market_data
+    allowed_methods: [GET]
+    forbidden_actions: [bet_placement, account_automation, restricted_scraping]
+  api_football:
+    provider_type: deep_football_evidence
+    enabled: true
+    approval_status: user_requested_authenticated_read_api
+    allowed_methods: [GET]
+    forbidden_actions: [bet_placement, account_automation, restricted_scraping]
+  open_meteo:
+    provider_type: weather
+    enabled: true
+    approval_status: open_noncommercial_read_api
+    allowed_methods: [GET]
+    forbidden_actions: [bet_placement, account_automation, restricted_scraping]
+  statsbomb_open_data:
+    provider_type: historical_training_data
+    enabled: true
+    approval_status: open_data_with_attribution
+    allowed_methods: [GET]
+    forbidden_actions: [bet_placement, account_automation, restricted_scraping]

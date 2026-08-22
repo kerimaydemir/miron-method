@@ -1,0 +1,22 @@
+#!/bin/sh
+set -eu
+
+command_name="${1:-}"
+case "$command_name" in
+  lint)
+    cd /workspace/apps/api && ruff check app tests scripts
+    ;;
+  format)
+    cd /workspace/apps/api && ruff check --fix app tests scripts && ruff format app tests scripts
+    ;;
+  typecheck)
+    cd /workspace/apps/api && mypy app scripts
+    ;;
+  verify-docker)
+    cd /workspace && sh scripts/verify-docker-contract.sh
+    ;;
+  *)
+    echo "usage: toolbox {lint|format|typecheck|verify-docker}" >&2
+    exit 2
+    ;;
+esac

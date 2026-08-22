@@ -1,0 +1,8 @@
+schema_version: budget-policy.v1
+monthly_external_cap_usd: "10.00"
+three_day_scan_cap_usd: "0.15"
+deep_analysis_soft_cap_usd: "0.50"
+deep_analysis_hard_cap_usd: "2.00"
+post_match_hard_cap_usd: "0.20"
+shadow_experiment_share: "0.10"
+

@@ -1,0 +1,43 @@
+schema_version: model-registry.v1
+verified_at: 2026-08-22T00:00:00Z
+verification_expires_at: 2026-09-22T00:00:00Z
+currency: USD
+routes:
+  grounded_research:
+    provider: google_gemini
+    model_id: gemini-3.5-flash
+    capabilities: [structured_output, function_calling, thinking, search_grounding, url_context]
+    input_usd_per_mtok: "1.50"
+    cached_input_usd_per_mtok: "0.15"
+    output_usd_per_mtok: "9.00"
+    max_calls_per_run: 4
+  normalization:
+    provider: google_gemini
+    model_id: gemini-3.5-flash-lite
+    capabilities: [structured_output, function_calling, thinking]
+    input_usd_per_mtok: "0.30"
+    cached_input_usd_per_mtok: "0.03"
+    output_usd_per_mtok: "2.50"
+    max_calls_per_run: 8
+  critic:
+    provider: google_gemini
+    model_id: gemini-3.6-flash
+    capabilities: [structured_output, function_calling, thinking, search_grounding]
+    input_usd_per_mtok: "0.75"
+    cached_input_usd_per_mtok: null
+    output_usd_per_mtok: "3.75"
+    max_calls_per_run: 6
+  committee:
+    provider: google_gemini
+    model_id: gemini-3.5-flash
+    capabilities: [structured_output, function_calling, thinking, search_grounding, url_context]
+    input_usd_per_mtok: "1.50"
+    cached_input_usd_per_mtok: "0.15"
+    output_usd_per_mtok: "9.00"
+    max_calls_per_run: 5
+policies:
+  reject_expired_verification: true
+  reject_unknown_price: true
+  reject_missing_capability: true
+  record_provider_request_id: true
+  store_prompts_without_secrets: true

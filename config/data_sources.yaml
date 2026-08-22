@@ -1,0 +1,81 @@
+schema_version: data-source-matrix.v1
+policy:
+  publish_only_with_timestamped_evidence: true
+  generated_odds_are_forbidden: true
+  bet_placement_is_forbidden: true
+  missing_required_source_behavior: fail_closed
+
+sources:
+  api_football:
+    role: primary_deep_football_evidence
+    credential: API_FOOTBALL_API_KEY
+    required_for_auto_coupon: true
+    endpoints:
+      - /fixtures
+      - /fixtures/statistics
+      - /fixtures/lineups
+      - /fixtures/players
+      - /fixtures/headtohead
+      - /injuries
+      - /predictions
+      - /odds
+      - /standings
+      - /coachs
+    stages: [S05, S06, S07, S08, S09, S10, S11, S13, S14, S15, S16]
+  the_odds_api:
+    role: independent_multi_bookmaker_market_truth
+    credential: THE_ODDS_API_KEY
+    required_for_auto_coupon: true
+    stages: [S13, S14, S21]
+    markets:
+      - h2h
+      - draw_no_bet
+      - btts
+      - totals
+      - alternate_totals
+      - team_totals
+      - alternate_team_totals
+  google_gemini_search:
+    role: current_official_news_and_cross_check
+    credential: GEMINI_API_KEY
+    required_for_auto_coupon: true
+    stages: [S01, S02, S03, S04, S14]
+  open_meteo:
+    role: venue_weather
+    credential: none
+    required_for_auto_coupon: false
+    stages: [S12]
+  statsbomb_open_data:
+    role: historical_rag_and_backtest_seed
+    credential: none
+    required_for_auto_coupon: false
+    live_fixture_truth: false
+    stages: [S15, S16, S32]
+  football_data_org:
+    role: fixture_fallback
+    credential: FOOTBALL_DATA_API_KEY
+    required_for_auto_coupon: false
+  openligadb:
+    role: no_key_fixture_fallback
+    credential: none
+    required_for_auto_coupon: false
+
+allowed_leagues:
+  - {key: epl, api_football_seed_id: 39}
+  - {key: laliga, api_football_seed_id: 140}
+  - {key: bundesliga, api_football_seed_id: 78}
+  - {key: serie_a, api_football_seed_id: 135}
+  - {key: ligue_1, api_football_seed_id: 61}
+  - {key: eredivisie, api_football_seed_id: 88}
+  - {key: primeira, api_football_seed_id: 94}
+  - {key: super_lig, api_football_seed_id: 203}
+
+quota_plan:
+  scan_strategy: fixture_and_market_list_once_then_enrich_finalists
+  api_football_requests_per_finalist: 13
+  typical_finalists: 3
+  typical_deep_requests_per_run: 39
+  free_plan_requests_per_minute: 10
+  free_plan_minimum_deep_collection_minutes: 4
+  cache_fixture_mapping: true
+  note: Seed league IDs must be validated against the provider response each season.
