@@ -55,6 +55,7 @@ jobs:
           THE_ODDS_API_KEY: ${{ secrets.THE_ODDS_API_KEY }}
           ODDS_API_IO_KEY: ${{ secrets.ODDS_API_IO_KEY }}
           API_FOOTBALL_API_KEY: ${{ secrets.API_FOOTBALL_API_KEY }}
+          SPORTMONKS_API_KEY: ${{ secrets.SPORTMONKS_API_KEY }}
           RAPIDAPI_KEY: ${{ secrets.RAPIDAPI_KEY }}
           AUTOMATION_TOKEN: ${{ secrets.MIRON_BABA_AUTOMATION_TOKEN }}
         run: |
@@ -113,6 +114,8 @@ jobs:
           API_FOOTBALL_BASE_URL=https://v3.football.api-sports.io
           API_FOOTBALL_REQUESTS_PER_MINUTE=10
           API_FOOTBALL_CURRENT_ODDS_ENABLED=true
+          SPORTMONKS_API_KEY=${SPORTMONKS_API_KEY}
+          SPORTMONKS_BASE_URL=https://api.sportmonks.com/v3/football
           RAPIDAPI_KEY=${RAPIDAPI_KEY}
           RAPIDAPI_HOST=free-api-live-football-data.p.rapidapi.com
           RAPIDAPI_REFRESH_SECONDS=900

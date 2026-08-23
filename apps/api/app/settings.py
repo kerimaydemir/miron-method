@@ -37,6 +37,8 @@ class Settings(BaseSettings):
     API_FOOTBALL_BASE_URL: str = "https://v3.football.api-sports.io"
     API_FOOTBALL_REQUESTS_PER_MINUTE: int = Field(default=10, ge=1, le=1_200)
     API_FOOTBALL_CURRENT_ODDS_ENABLED: bool = False
+    SPORTMONKS_API_KEY: SecretStr = SecretStr("")
+    SPORTMONKS_BASE_URL: str = "https://api.sportmonks.com/v3/football"
     RAPIDAPI_KEY: SecretStr = SecretStr("")
     RAPIDAPI_HOST: str = "free-api-live-football-data.p.rapidapi.com"
     RAPIDAPI_REFRESH_SECONDS: int = Field(default=900, ge=300, le=86_400)

@@ -22,6 +22,20 @@ sources:
       - /standings
       - /coachs
     stages: [S05, S06, S07, S08, S09, S10, S11, S13, S14, S15, S16]
+  sportmonks:
+    role: candidate_deep_football_evidence
+    credential: SPORTMONKS_API_KEY
+    required_for_auto_coupon: false
+    runtime_status: token_stored_adapter_not_yet_wired
+    access_note: Dashboard token created; direct football endpoint verification was inconclusive in local network.
+    endpoints:
+      - /leagues
+      - /fixtures/between/{start_date}/{end_date}
+      - /fixtures/{fixture_id}
+      - /teams/{team_id}
+      - /players/{player_id}
+      - /standings
+    stages: [S05, S06, S07, S08, S09, S10, S11, S14, S15, S16]
   the_odds_api:
     role: independent_multi_bookmaker_market_truth
     credential: THE_ODDS_API_KEY

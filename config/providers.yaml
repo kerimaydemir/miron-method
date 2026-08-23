@@ -42,6 +42,12 @@ providers:
     approval_status: user_requested_authenticated_read_api
     allowed_methods: [GET]
     forbidden_actions: [bet_placement, account_automation, restricted_scraping]
+  sportmonks:
+    provider_type: deep_football_evidence
+    enabled: true
+    approval_status: user_requested_free_authenticated_read_api_token_stored
+    allowed_methods: [GET]
+    forbidden_actions: [bet_placement, account_automation, restricted_scraping]
   open_meteo:
     provider_type: weather
     enabled: true
