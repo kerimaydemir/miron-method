@@ -30,6 +30,12 @@ providers:
     approval_status: user_requested_read_only_market_data
     allowed_methods: [GET]
     forbidden_actions: [bet_placement, account_automation, restricted_scraping]
+  odds_api_io:
+    provider_type: odds
+    enabled: true
+    approval_status: user_requested_free_read_only_market_data
+    allowed_methods: [GET]
+    forbidden_actions: [bet_placement, account_automation, restricted_scraping]
   api_football:
     provider_type: deep_football_evidence
     enabled: true
@@ -46,5 +52,17 @@ providers:
     provider_type: historical_training_data
     enabled: true
     approval_status: open_data_with_attribution
+    allowed_methods: [GET]
+    forbidden_actions: [bet_placement, account_automation, restricted_scraping]
+  thesportsdb:
+    provider_type: optional_metadata
+    enabled: true
+    approval_status: public_free_json_api_unverified_in_runtime
+    allowed_methods: [GET]
+    forbidden_actions: [bet_placement, account_automation, restricted_scraping]
+  scorebat:
+    provider_type: optional_video_context
+    enabled: true
+    approval_status: free_api_candidate_unverified_in_runtime
     allowed_methods: [GET]
     forbidden_actions: [bet_placement, account_automation, restricted_scraping]

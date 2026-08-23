@@ -10,6 +10,7 @@ from app.infrastructure.composite_odds_provider import CompositeOddsProvider
 from app.infrastructure.fallback_fixture_provider import FallbackFixtureProvider
 from app.infrastructure.football_data_org_provider import FootballDataOrgProvider
 from app.infrastructure.mock_fixture_provider import MockFixtureProvider
+from app.infrastructure.odds_api_io_provider import OddsApiIoProvider
 from app.infrastructure.openligadb_provider import OpenLigaDbProvider
 from app.infrastructure.rapidapi_football_provider import RapidApiFootballProvider
 from app.infrastructure.the_odds_api_provider import TheOddsApiProvider
@@ -57,7 +58,7 @@ wide_markets = tuple(
     item.strip() for item in settings.THE_ODDS_WIDE_MARKETS.split(",") if item.strip()
 )
 
-odds_provider: ApiFootballOddsProvider | CompositeOddsProvider | TheOddsApiProvider
+configured_odds_providers = []
 if settings.odds_enabled:
     the_odds_provider = TheOddsApiProvider(
         api_key=settings.THE_ODDS_API_KEY.get_secret_value(),
@@ -65,27 +66,34 @@ if settings.odds_enabled:
         refresh_seconds=settings.ODDS_REFRESH_SECONDS,
         wide_markets=wide_markets,
     )
-    if settings.api_football_enabled:
-        odds_provider = CompositeOddsProvider(
-            (
-                the_odds_provider,
-                ApiFootballOddsProvider(
-                    api_key=settings.API_FOOTBALL_API_KEY.get_secret_value(),
-                    base_url=settings.API_FOOTBALL_BASE_URL,
-                    refresh_seconds=settings.ODDS_REFRESH_SECONDS,
-                    requests_per_minute=settings.API_FOOTBALL_REQUESTS_PER_MINUTE,
-                ),
-            )
+    configured_odds_providers.append(the_odds_provider)
+if settings.odds_api_io_enabled:
+    configured_odds_providers.append(
+        OddsApiIoProvider(
+            api_key=settings.ODDS_API_IO_KEY.get_secret_value(),
+            base_url=settings.ODDS_API_IO_BASE_URL,
+            refresh_seconds=settings.ODDS_REFRESH_SECONDS,
+            bookmakers=settings.ODDS_API_IO_BOOKMAKERS,
+            events_per_league=settings.ODDS_API_IO_EVENTS_PER_LEAGUE,
         )
-    else:
-        odds_provider = the_odds_provider
-elif settings.api_football_current_odds_enabled:
-    odds_provider = ApiFootballOddsProvider(
-        api_key=settings.API_FOOTBALL_API_KEY.get_secret_value(),
-        base_url=settings.API_FOOTBALL_BASE_URL,
-        refresh_seconds=settings.ODDS_REFRESH_SECONDS,
-        requests_per_minute=settings.API_FOOTBALL_REQUESTS_PER_MINUTE,
     )
+if settings.api_football_current_odds_enabled or (
+    settings.api_football_enabled and configured_odds_providers
+):
+    configured_odds_providers.append(
+        ApiFootballOddsProvider(
+            api_key=settings.API_FOOTBALL_API_KEY.get_secret_value(),
+            base_url=settings.API_FOOTBALL_BASE_URL,
+            refresh_seconds=settings.ODDS_REFRESH_SECONDS,
+            requests_per_minute=settings.API_FOOTBALL_REQUESTS_PER_MINUTE,
+        )
+    )
+
+odds_provider: ApiFootballOddsProvider | CompositeOddsProvider | OddsApiIoProvider | TheOddsApiProvider
+if len(configured_odds_providers) > 1:
+    odds_provider = CompositeOddsProvider(tuple(configured_odds_providers))
+elif len(configured_odds_providers) == 1:
+    odds_provider = configured_odds_providers[0]
 else:
     odds_provider = TheOddsApiProvider(
         api_key="",

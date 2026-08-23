@@ -35,6 +35,25 @@ sources:
       - alternate_totals
       - team_totals
       - alternate_team_totals
+  odds_api_io:
+    role: free_multi_bookmaker_market_fallback
+    credential: ODDS_API_IO_KEY
+    required_for_auto_coupon: false
+    stages: [S13, S14, S21]
+    allowed_league_slugs:
+      - england-premier-league
+      - spain-laliga
+      - germany-bundesliga
+      - italy-serie-a
+      - france-ligue-1
+      - netherlands-eredivisie
+      - portugal-liga-portugal
+      - turkiye-super-lig
+    markets:
+      - h2h
+      - draw_no_bet
+      - btts
+      - totals
   google_gemini_search:
     role: current_official_news_and_cross_check
     credential: GEMINI_API_KEY
@@ -51,6 +70,16 @@ sources:
     required_for_auto_coupon: false
     live_fixture_truth: false
     stages: [S15, S16, S32]
+  thesportsdb:
+    role: optional_public_team_event_metadata
+    credential: THESPORTSDB_API_KEY
+    required_for_auto_coupon: false
+    runtime_status: candidate_not_yet_wired
+  scorebat:
+    role: optional_highlight_video_context
+    credential: SCOREBAT_API_KEY
+    required_for_auto_coupon: false
+    runtime_status: candidate_not_yet_wired
   football_data_org:
     role: fixture_fallback
     credential: FOOTBALL_DATA_API_KEY

@@ -22,6 +22,7 @@ class CanonicalFixture(BaseModel):
         "openligadb",
         "football_data_org",
         "the_odds_api",
+        "odds_api_io",
         "rapidapi_football",
         "api_football",
     ] = "mock_fixture"

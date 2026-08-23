@@ -53,6 +53,7 @@ jobs:
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           THE_ODDS_API_KEY: ${{ secrets.THE_ODDS_API_KEY }}
+          ODDS_API_IO_KEY: ${{ secrets.ODDS_API_IO_KEY }}
           API_FOOTBALL_API_KEY: ${{ secrets.API_FOOTBALL_API_KEY }}
           RAPIDAPI_KEY: ${{ secrets.RAPIDAPI_KEY }}
           AUTOMATION_TOKEN: ${{ secrets.MIRON_BABA_AUTOMATION_TOKEN }}
@@ -96,6 +97,10 @@ jobs:
           THE_ODDS_API_KEY=${THE_ODDS_API_KEY}
           THE_ODDS_API_BASE_URL=https://api.the-odds-api.com/v4
           THE_ODDS_WIDE_MARKETS=h2h,totals
+          ODDS_API_IO_KEY=${ODDS_API_IO_KEY}
+          ODDS_API_IO_BASE_URL=https://api.odds-api.io/v3
+          ODDS_API_IO_BOOKMAKERS=Bet365,Unibet
+          ODDS_API_IO_EVENTS_PER_LEAGUE=3
           ODDS_REFRESH_SECONDS=300
           AUTO_COUPON_WINDOW_DAYS=1
           AUTO_COUPON_REUSE_SECONDS=21600
@@ -114,6 +119,10 @@ jobs:
           RAPIDAPI_DEEP_REQUEST_LIMIT=4
           OPEN_METEO_FORECAST_BASE_URL=https://api.open-meteo.com/v1
           OPEN_METEO_GEOCODING_BASE_URL=https://geocoding-api.open-meteo.com/v1
+          THESPORTSDB_API_KEY=123
+          THESPORTSDB_BASE_URL=https://www.thesportsdb.com/api/v1/json
+          SCOREBAT_API_KEY=
+          SCOREBAT_BASE_URL=https://www.scorebat.com/video-api/v3
           EOF
           sed -i 's/^          //' .env
           chmod 600 .env

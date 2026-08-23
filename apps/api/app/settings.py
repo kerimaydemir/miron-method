@@ -43,9 +43,17 @@ class Settings(BaseSettings):
     RAPIDAPI_DEEP_REQUEST_LIMIT: int = Field(default=4, ge=1, le=8)
     OPEN_METEO_FORECAST_BASE_URL: str = "https://api.open-meteo.com/v1"
     OPEN_METEO_GEOCODING_BASE_URL: str = "https://geocoding-api.open-meteo.com/v1"
+    THESPORTSDB_API_KEY: SecretStr = SecretStr("123")
+    THESPORTSDB_BASE_URL: str = "https://www.thesportsdb.com/api/v1/json"
+    SCOREBAT_API_KEY: SecretStr = SecretStr("")
+    SCOREBAT_BASE_URL: str = "https://www.scorebat.com/video-api/v3"
     THE_ODDS_API_KEY: SecretStr = SecretStr("")
     THE_ODDS_API_BASE_URL: str = "https://api.the-odds-api.com/v4"
     THE_ODDS_WIDE_MARKETS: str = "h2h,totals"
+    ODDS_API_IO_KEY: SecretStr = SecretStr("")
+    ODDS_API_IO_BASE_URL: str = "https://api.odds-api.io/v3"
+    ODDS_API_IO_BOOKMAKERS: str = "Bet365,Unibet"
+    ODDS_API_IO_EVENTS_PER_LEAGUE: int = Field(default=3, ge=1, le=10)
     ODDS_REFRESH_SECONDS: int = Field(default=300, ge=60, le=3_600)
     AUTO_COUPON_WINDOW_DAYS: int = Field(default=1, ge=1, le=3)
     AUTO_COUPON_REUSE_SECONDS: int = Field(default=21_600, ge=60, le=86_400)
@@ -84,6 +92,10 @@ class Settings(BaseSettings):
     @property
     def odds_enabled(self) -> bool:
         return bool(self.THE_ODDS_API_KEY.get_secret_value())
+
+    @property
+    def odds_api_io_enabled(self) -> bool:
+        return bool(self.ODDS_API_IO_KEY.get_secret_value())
 
     @property
     def football_data_enabled(self) -> bool:

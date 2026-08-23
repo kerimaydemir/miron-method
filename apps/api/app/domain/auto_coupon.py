@@ -19,10 +19,13 @@ MarketKey = Literal[
 ]
 
 
+BookmakerSource = Literal["the_odds_api", "odds_api_io", "rapidapi_football", "api_football"]
+
+
 class MarketQuote(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    provider: Literal["the_odds_api", "rapidapi_football", "api_football"] = "the_odds_api"
+    provider: BookmakerSource = "the_odds_api"
     observed_at: datetime
     market_key: MarketKey
     market_label: str
@@ -133,6 +136,7 @@ def league_for_fixture(fixture: CanonicalFixture) -> LeaguePolicy | None:
                 f"football-data:{(league.football_data_code or '').casefold()}:"
             )
             or fixture.competition_key == f"theodds:{league.odds_sport_key}"
+            or fixture.competition_key == f"oddsapiio:{_ODDS_API_IO_LEAGUE_SLUGS[league.key]}"
             or fixture.competition_key.startswith(f"rapidapi:{league.key}:")
             or fixture.competition_key.startswith(f"api-football:{league.key}:")
         ):
@@ -140,10 +144,22 @@ def league_for_fixture(fixture: CanonicalFixture) -> LeaguePolicy | None:
     return None
 
 
+_ODDS_API_IO_LEAGUE_SLUGS: dict[str, str] = {
+    "epl": "england-premier-league",
+    "laliga": "spain-laliga",
+    "bundesliga": "germany-bundesliga",
+    "serie_a": "italy-serie-a",
+    "ligue_1": "france-ligue-1",
+    "eredivisie": "netherlands-eredivisie",
+    "primeira": "portugal-liga-portugal",
+    "super_lig": "turkiye-super-lig",
+}
+
+
 class MarketOdds(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    provider: Literal["the_odds_api", "rapidapi_football", "api_football"] = "the_odds_api"
+    provider: BookmakerSource = "the_odds_api"
     event_id: str | None = None
     observed_at: datetime
     bookmaker_count: int = Field(ge=1)

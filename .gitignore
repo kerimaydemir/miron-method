@@ -1,4 +1,6 @@
 .env
+.api-accounts.local
+.api-keys.local
 .DS_Store
 .next/
 node_modules/
