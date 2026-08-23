@@ -23,6 +23,8 @@ class AutoCouponRepository(Protocol):
 
     def latest(self) -> AutoCouponRun | None: ...
 
+    def recent(self, limit: int = 30) -> tuple[AutoCouponRun, ...]: ...
+
     def memory_context(self, query: str, limit: int = 8) -> tuple[str, ...]: ...
 
     def list_pending(self) -> tuple[PendingSelection, ...]: ...
@@ -39,6 +41,8 @@ class AutoCouponRepository(Protocol):
         post_match: dict[str, object],
     ) -> None: ...
 
+    def update_run(self, run: AutoCouponRun) -> None: ...
+
     def performance(self) -> AutoCouponPerformance: ...
 
 
@@ -54,6 +58,11 @@ class NullAutoCouponRepository:
 
     def latest(self) -> AutoCouponRun | None:
         return max(self._runs.values(), key=lambda run: run.observed_at, default=None)
+
+    def recent(self, limit: int = 30) -> tuple[AutoCouponRun, ...]:
+        return tuple(
+            sorted(self._runs.values(), key=lambda run: run.observed_at, reverse=True)[:limit]
+        )
 
     def memory_context(self, query: str, limit: int = 8) -> tuple[str, ...]:
         del query, limit
@@ -99,6 +108,9 @@ class NullAutoCouponRepository:
             else run.state
         )
         self._runs[auto_run_id] = run.model_copy(update={"state": state, "selections": selections})
+
+    def update_run(self, run: AutoCouponRun) -> None:
+        self._runs[run.run_id] = run
 
     def performance(self) -> AutoCouponPerformance:
         selections = [
@@ -236,6 +248,21 @@ class PostgresAutoCouponRepository:
             ).scalar_one_or_none()
         return self.load(cast(UUID, run_id)) if run_id is not None else None
 
+    def recent(self, limit: int = 30) -> tuple[AutoCouponRun, ...]:
+        with self._engine.connect() as connection:
+            run_ids = tuple(
+                connection.execute(
+                    text("""
+                    SELECT id FROM auto_coupon_runs
+                    ORDER BY created_at DESC LIMIT :limit
+                    """),
+                    {"limit": limit},
+                ).scalars()
+            )
+        return tuple(
+            run for run_id in run_ids if (run := self.load(cast(UUID, run_id))) is not None
+        )
+
     def memory_context(self, query: str, limit: int = 8) -> tuple[str, ...]:
         normalized = " ".join(query.split())
         with self._engine.connect() as connection:
@@ -334,6 +361,26 @@ class PostgresAutoCouponRepository:
                     """),
                     {"auto_run_id": auto_run_id, "now": now},
                 )
+
+    def update_run(self, run: AutoCouponRun) -> None:
+        with self._engine.begin() as connection:
+            connection.execute(
+                text("""
+                UPDATE auto_coupon_runs
+                SET state = :state,
+                    run_json = CAST(:payload AS jsonb),
+                    actual_cost_usd = :cost,
+                    updated_at = :updated_at
+                WHERE id = :id
+                """),
+                {
+                    "id": run.run_id,
+                    "state": run.state,
+                    "payload": canonical_json(run.model_dump(mode="json")),
+                    "cost": run.actual_cost_usd,
+                    "updated_at": datetime.now(UTC),
+                },
+            )
 
     def performance(self) -> AutoCouponPerformance:
         with self._engine.connect() as connection:

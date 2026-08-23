@@ -1,6 +1,12 @@
+from typing import cast
+
 from app.domain.ports import LiveFixtureProvider
 from app.infrastructure.api_football_odds_provider import ApiFootballOddsProvider
-from app.infrastructure.composite_fixture_provider import CompositeAnalysisFixtureProvider
+from app.infrastructure.composite_fixture_provider import (
+    CompositeAnalysisFixtureProvider,
+    OddsFixtureProvider,
+)
+from app.infrastructure.composite_odds_provider import CompositeOddsProvider
 from app.infrastructure.fallback_fixture_provider import FallbackFixtureProvider
 from app.infrastructure.football_data_org_provider import FootballDataOrgProvider
 from app.infrastructure.mock_fixture_provider import MockFixtureProvider
@@ -51,14 +57,28 @@ wide_markets = tuple(
     item.strip() for item in settings.THE_ODDS_WIDE_MARKETS.split(",") if item.strip()
 )
 
-odds_provider: ApiFootballOddsProvider | TheOddsApiProvider
+odds_provider: ApiFootballOddsProvider | CompositeOddsProvider | TheOddsApiProvider
 if settings.odds_enabled:
-    odds_provider = TheOddsApiProvider(
+    the_odds_provider = TheOddsApiProvider(
         api_key=settings.THE_ODDS_API_KEY.get_secret_value(),
         base_url=settings.THE_ODDS_API_BASE_URL,
         refresh_seconds=settings.ODDS_REFRESH_SECONDS,
         wide_markets=wide_markets,
     )
+    if settings.api_football_enabled:
+        odds_provider = CompositeOddsProvider(
+            (
+                the_odds_provider,
+                ApiFootballOddsProvider(
+                    api_key=settings.API_FOOTBALL_API_KEY.get_secret_value(),
+                    base_url=settings.API_FOOTBALL_BASE_URL,
+                    refresh_seconds=settings.ODDS_REFRESH_SECONDS,
+                    requests_per_minute=settings.API_FOOTBALL_REQUESTS_PER_MINUTE,
+                ),
+            )
+        )
+    else:
+        odds_provider = the_odds_provider
 elif settings.api_football_current_odds_enabled:
     odds_provider = ApiFootballOddsProvider(
         api_key=settings.API_FOOTBALL_API_KEY.get_secret_value(),
@@ -73,7 +93,9 @@ else:
         refresh_seconds=settings.ODDS_REFRESH_SECONDS,
         wide_markets=wide_markets,
     )
-analysis_fixture_provider = CompositeAnalysisFixtureProvider(fixture_provider, odds_provider)
+analysis_fixture_provider = CompositeAnalysisFixtureProvider(
+    fixture_provider, cast(OddsFixtureProvider, odds_provider)
+)
 
 
 async def start_fixture_runtime() -> None:

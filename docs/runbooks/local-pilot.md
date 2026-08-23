@@ -58,26 +58,36 @@ Open `http://localhost:3000/auto` and choose **En iyi maçları bul**. The servi
    Ligue 1, Eredivisie, Primeira Liga, and Süper Lig;
 2. rejects stale seasons and every non-allowlisted competition, including Mexico
    and Colombia;
-3. ranks at most ten candidates, asks a cheap Gemini role for an adaptive shortlist,
-   then asks an independent Gemini critic for exactly three;
-4. runs and locks the existing four-model MİRON BABA analysis for all three;
-5. returns single, double, and treble tickets and stores pending selections.
+3. writes a daily journal of up to five monitored fixtures with reasons, risks,
+   observed odds when available, and an explicit `journal_only` marker when odds
+   are absent;
+4. ranks at most ten candidates, asks a cheap Gemini role for an adaptive shortlist,
+   then asks an independent Gemini critic for exactly three when live odds are present;
+5. runs and locks the existing four-model MİRON BABA analysis for priced finalists;
+6. returns single, double, and treble tickets only when the 70% probability and
+   1.80+ live-odds value gate is cleared.
 
 A completed run whose three selections are still pending and have not kicked off is
 reused for `AUTO_COUPON_REUSE_SECONDS` (six hours by default). This prevents repeated
 button clicks from spending fourteen more Gemini requests on the same fixture window.
 
-`THE_ODDS_API_KEY` is required for automatic coupon publishing. The read-only adapter
-fetches European bookmaker quotes, averages each outcome, and removes overround
-proportionally. The default free-quota market set is `h2h,totals`; set
-`THE_ODDS_WIDE_MARKETS` only when the quota/billing plan supports wider markets.
-API-Football remains the deep evidence source; its current-season odds adapter is
-disabled unless `API_FOOTBALL_CURRENT_ODDS_ENABLED=true` is explicitly set.
+`THE_ODDS_API_KEY` and `API_FOOTBALL_API_KEY` are used as read-only bookmaker
+sources. The Odds API is tried first; API-Football is a fail-soft fallback for
+quota, timeout, or empty-result days. When both bookmaker feeds are unavailable,
+the system still creates a fixture-only daily journal, but `market_decimal_odds`
+is `null`, the tier remains `journal_only`, and no coupon/ticket is published.
+The default free-quota market set is `h2h,totals`; set `THE_ODDS_WIDE_MARKETS`
+only when the quota/billing plan supports wider markets.
 
 The API checks pending selections every `AUTO_COUPON_SETTLEMENT_SECONDS`. A final
 score creates an autopsy, variance decomposition, hindsight-safe lesson, and a
 searchable `case_memory_chunks` record. Case memory is retrieved for mechanism
 support only and never changes a historical prediction lock.
+
+For 30-day monitoring, call `GET /api/v1/auto-coupons/journal?limit=30` or open
+`/auto`. Each pre-match run stores `daily_predictions`; each post-match run
+updates `post_match_review` with hit/loss/void, Brier score where a priced pick
+exists, equal-stake ROI where odds exist, and a short process verdict.
 
 ## GitHub Actions automation
 

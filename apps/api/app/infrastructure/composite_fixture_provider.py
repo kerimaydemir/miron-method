@@ -66,19 +66,18 @@ class CompositeAnalysisFixtureProvider:
             return await self._base.get_fixture(fixture_id)
 
     async def features_for(self, fixture: CanonicalFixture) -> TriageFactors:
-        if fixture.source_provider == self._odds.source_name:
+        try:
             return await self._odds.features_for(fixture)
+        except KeyError:
+            pass
         return await self._base.features_for(fixture)
 
     async def refresh_result(self, fixture_id: UUID) -> CanonicalFixture:
         try:
-            fixture = await self._odds.get_fixture(fixture_id)
+            return await self._odds.refresh_result(fixture_id)
         except KeyError:
             if isinstance(self._base, FallbackFixtureProvider):
                 return await self._base.refresh_result(fixture_id)
             if isinstance(self._base, OpenLigaDbProvider):
                 await self._base.refresh(force=True)
             return await self._base.get_fixture(fixture_id)
-        if fixture.source_provider == self._odds.source_name:
-            return await self._odds.refresh_result(fixture_id)
-        return fixture

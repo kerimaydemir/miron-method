@@ -59,7 +59,6 @@ jobs:
         run: |
           set -euo pipefail
           test -n "$GEMINI_API_KEY"
-          test -n "$THE_ODDS_API_KEY"
           test -n "$API_FOOTBALL_API_KEY"
           test -n "$AUTOMATION_TOKEN"
           test -n "$DATA_ENCRYPTION_KEY"
@@ -108,7 +107,7 @@ jobs:
           API_FOOTBALL_API_KEY=${API_FOOTBALL_API_KEY}
           API_FOOTBALL_BASE_URL=https://v3.football.api-sports.io
           API_FOOTBALL_REQUESTS_PER_MINUTE=10
-          API_FOOTBALL_CURRENT_ODDS_ENABLED=false
+          API_FOOTBALL_CURRENT_ODDS_ENABLED=true
           RAPIDAPI_KEY=${RAPIDAPI_KEY}
           RAPIDAPI_HOST=free-api-live-football-data.p.rapidapi.com
           RAPIDAPI_REFRESH_SECONDS=900
@@ -183,7 +182,7 @@ jobs:
             -o "reports/${PHASE}.json"
           {
             echo "### MIRON BABA ${PHASE}"
-            jq -r '"phase=\(.phase) day=\(.day) selections=\(.selection_count // 0) settled=\(.settled_count // 0) notice=\(.notice // "ok")"' "reports/${PHASE}.json"
+            jq -r '"phase=\(.phase) day=\(.day) daily_predictions=\(.daily_prediction_count // 0) selections=\(.selection_count // 0) settled=\(.settled_count // 0) daily_reviewed=\(.daily_reviewed_count // 0) notice=\(.notice // "ok")"' "reports/${PHASE}.json"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Dump and encrypt state

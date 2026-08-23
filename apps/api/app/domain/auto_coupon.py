@@ -248,21 +248,86 @@ class CouponTicket(BaseModel):
     risk_label: Literal["düşük", "orta", "yüksek"]
 
 
+class DailyPrediction(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    prediction_id: UUID
+    fixture: CanonicalFixture
+    league: LeaguePolicy
+    pick: Pick
+    market_key: MarketKey
+    market_label: str
+    outcome_label: str
+    market_description: str | None = None
+    line: Decimal | None = None
+    probability: Decimal = Field(gt=0, lt=1)
+    market_decimal_odds: Decimal | None = Field(default=None, gt=1)
+    market_fair_probability: Decimal | None = Field(default=None, gt=0, lt=1)
+    bookmaker_count: int = Field(ge=0)
+    confidence: Decimal = Field(ge=0, le=1)
+    score: Decimal = Field(ge=0, le=100)
+    tier: Literal["journal_only", "watchlist", "coupon_candidate"]
+    reasons: tuple[str, ...] = Field(min_length=1)
+    risks: tuple[str, ...] = Field(min_length=1)
+    observed_at: datetime
+
+
+class DailyPredictionReviewItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    prediction_id: UUID
+    fixture_id: UUID
+    pick: Pick
+    status: Literal["won", "lost", "void"]
+    final_home_score: int
+    final_away_score: int
+    probability: Decimal = Field(gt=0, lt=1)
+    market_decimal_odds: Decimal | None = Field(default=None, gt=1)
+    process_verdict: Literal[
+        "sound_win",
+        "lucky_win",
+        "sound_but_unlucky_loss",
+        "bad_process_loss",
+        "insufficient_data",
+    ]
+    explanation: str = Field(min_length=12, max_length=900)
+    lesson: str = Field(min_length=12, max_length=900)
+
+
+class DailyReviewReport(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    reviewed_at: datetime
+    total_predictions: int = Field(ge=0)
+    settled_predictions: int = Field(ge=0)
+    wins: int = Field(ge=0)
+    losses: int = Field(ge=0)
+    voids: int = Field(ge=0)
+    hit_rate: Decimal | None = Field(default=None, ge=0, le=1)
+    average_odds: Decimal | None = Field(default=None, gt=1)
+    brier_score: Decimal | None = Field(default=None, ge=0, le=1)
+    equal_stake_roi: Decimal | None = None
+    summary: str = Field(min_length=12, max_length=1200)
+    items: tuple[DailyPredictionReviewItem, ...] = ()
+
+
 class AutoCouponRun(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     schema_version: Literal["auto-coupon.v1"] = "auto-coupon.v1"
     run_id: UUID
     state: Literal["completed", "settled"]
-    source_mode: Literal["bookmaker_live", "fixture_live_model_odds"]
+    source_mode: Literal["bookmaker_live", "fixture_live_model_odds", "fixture_live_no_odds"]
     observed_at: datetime
     allowed_leagues: tuple[LeaguePolicy, ...] = TOP_LEAGUES
     covered_league_keys: tuple[str, ...]
     initial_candidates: tuple[AutoCandidate, ...]
     rough_decision: FunnelDecision
     critic_decision: FunnelDecision
+    daily_predictions: tuple[DailyPrediction, ...] = ()
     selections: tuple[CouponSelection, ...]
     tickets: tuple[CouponTicket, ...]
+    post_match_review: DailyReviewReport | None = None
     rag_case_count: int = Field(ge=0)
     actual_cost_usd: Decimal = Field(ge=0)
     notice: str = "Olasılıksal seçimdir; kesinlik veya bahis tavsiyesi değildir."

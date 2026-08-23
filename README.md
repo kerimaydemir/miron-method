@@ -64,8 +64,9 @@ after a Gemini error. See
 - separate `/auto` funnel: fixed eight-league allowlist, stale-season rejection,
   10→adaptive shortlist→3 Gemini filtering, three locked MİRON BABA analyses,
   and single/double/treble tickets
-- The Odds API bookmaker averages with proportional overround removal; automatic
-  coupon publishing fails closed without a live odds key
+- The Odds API/API-Football bookmaker averages with proportional overround removal;
+  daily journal creation stays alive during quota/timeout failures and records
+  fixture-only entries without inventing odds
 - automatic result settlement, post-match autopsy, and PostgreSQL full-text case-memory
   retrieval kept outside every pre-match lock
 - GitHub Actions daily pre-match/post-match cycle that runs the Docker stack on

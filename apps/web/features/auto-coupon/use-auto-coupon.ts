@@ -52,6 +52,21 @@ export function useAutoCoupon(initialRunId?: string) {
       return response.json() as Promise<AutoCouponPerformance>;
     },
   });
+  const journal = useQuery({
+    queryKey: ["auto-coupon-journal"],
+    queryFn: async (): Promise<AutoCouponRun[]> => {
+      const response = await fetch(
+        `${API_BASE_URL}/api/v1/auto-coupons/journal?limit=30`,
+        {
+          cache: "no-store",
+        },
+      );
+      if (!response.ok) {
+        throw new Error(`AUTO_COUPON_JOURNAL_FAILED_${response.status}`);
+      }
+      return response.json() as Promise<AutoCouponRun[]>;
+    },
+  });
   const createRun = useMutation({
     mutationFn: async (): Promise<AutoCouponRun> => {
       const response = await fetch(`${API_BASE_URL}/api/v1/auto-coupons`, {
@@ -72,12 +87,14 @@ export function useAutoCoupon(initialRunId?: string) {
 
   return {
     data: createRun.data ?? savedRun.data,
+    journal: journal.data,
     readiness: readiness.data,
     performance: performance.data,
     error: createRun.error ?? savedRun.error,
     isError: createRun.isError || savedRun.isError,
     isPending:
       readiness.isPending ||
+      journal.isPending ||
       createRun.isPending ||
       (Boolean(initialRunId) && savedRun.isPending),
     mutate: createRun.mutate,

@@ -46,7 +46,7 @@ export function AutoCouponDashboard({
   initialRunId?: string;
 }) {
   const auto = useAutoCoupon(initialRunId);
-  const data = auto.data;
+  const data = auto.data ?? (!initialRunId ? auto.journal?.[0] : undefined);
   const readiness = auto.readiness;
   const errorMessage = auto.error?.message ?? "UNKNOWN_AUTO_COUPON_ERROR";
   const pathname = usePathname();
@@ -212,6 +212,92 @@ export function AutoCouponDashboard({
         <section className="auto-error" role="status">
           <strong>Bugün zorunlu kupon yok.</strong>
           <p>{data.notice}</p>
+        </section>
+      ) : null}
+
+      {data && data.daily_predictions.length > 0 ? (
+        <section className="auto-section" aria-labelledby="daily-journal-title">
+          <div className="auto-section-head">
+            <div>
+              <small>Günlük jurnal</small>
+              <h2 id="daily-journal-title">Bugünün takip tahminleri</h2>
+            </div>
+            <span>{formatKickoff(data.observed_at)}</span>
+          </div>
+          <div className="pick-grid">
+            {data.daily_predictions.map((prediction, index) => (
+              <article key={prediction.prediction_id}>
+                <div className="pick-rank">0{index + 1}</div>
+                <small>
+                  {prediction.league.name} ·{" "}
+                  {formatKickoff(prediction.fixture.kickoff_at)}
+                </small>
+                <h3>
+                  {prediction.fixture.home_team}
+                  <span>—</span>
+                  {prediction.fixture.away_team}
+                </h3>
+                <div className="pick-call">
+                  <strong>
+                    {prediction.market_label} · {prediction.outcome_label}
+                  </strong>
+                  <b>%{Math.round(Number(prediction.probability) * 100)}</b>
+                </div>
+                <div className="odds-line">
+                  <span>
+                    <small>Oran</small>
+                    <strong>{prediction.market_decimal_odds ?? "yok"}</strong>
+                  </span>
+                  <span>
+                    <small>Tier</small>
+                    <strong>{prediction.tier.replace("_", " ")}</strong>
+                  </span>
+                  <span>
+                    <small>Bookmaker</small>
+                    <strong>{prediction.bookmaker_count}</strong>
+                  </span>
+                </div>
+                <p>{prediction.reasons.join(" ")}</p>
+                <em>Risk: {prediction.risks.join(" ")}</em>
+              </article>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      {data?.post_match_review ? (
+        <section className="auto-section" aria-labelledby="review-title">
+          <div className="auto-section-head">
+            <div>
+              <small>Ertesi gün kontrol</small>
+              <h2 id="review-title">Önceki tahminlerin otopsisi</h2>
+            </div>
+            <span>
+              {data.post_match_review.wins} tuttu ·{" "}
+              {data.post_match_review.losses} kaybetti ·{" "}
+              {data.post_match_review.voids} void
+            </span>
+          </div>
+          <div className="ticket-list">
+            {data.post_match_review.items.map((item) => (
+              <article key={item.prediction_id}>
+                <span
+                  className={`risk-${item.status === "won" ? "single" : "treble"}`}
+                >
+                  {item.status}
+                </span>
+                <div>
+                  <strong>
+                    {item.final_home_score}-{item.final_away_score} ·{" "}
+                    {item.process_verdict}
+                  </strong>
+                  <p>{item.explanation}</p>
+                  <p>{item.lesson}</p>
+                </div>
+              </article>
+            ))}
+          </div>
+          <p className="responsible-notice">{data.post_match_review.summary}</p>
         </section>
       ) : null}
 

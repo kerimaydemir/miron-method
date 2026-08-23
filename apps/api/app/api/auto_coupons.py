@@ -89,16 +89,43 @@ async def run_daily_automation(
             "phase": phase,
             "day": day,
             "run_id": str(run.run_id),
+            "daily_prediction_count": len(run.daily_predictions),
+            "daily_predictions": [
+                {
+                    "fixture": (f"{item.fixture.home_team} - {item.fixture.away_team}"),
+                    "league": item.league.name,
+                    "market": item.market_label,
+                    "pick": item.outcome_label,
+                    "probability": str(item.probability),
+                    "odds": str(item.market_decimal_odds)
+                    if item.market_decimal_odds is not None
+                    else None,
+                    "tier": item.tier,
+                    "reasons": item.reasons,
+                    "risks": item.risks,
+                }
+                for item in run.daily_predictions
+            ],
             "selection_count": len(run.selections),
+            "ticket_count": len(run.tickets),
             "notice": run.notice,
         }
     settled = await auto_coupon_service.settle_pending()
+    reviewed = await auto_coupon_service.review_daily_predictions()
     return {
         "phase": phase,
         "day": day,
         "settled_count": settled,
+        "daily_reviewed_count": reviewed,
         "performance": auto_coupon_service.performance().model_dump(mode="json"),
     }
+
+
+@router.get("/journal", response_model=tuple[AutoCouponRun, ...])
+async def get_auto_coupon_journal(
+    limit: int = Query(default=30, ge=1, le=90),
+) -> tuple[AutoCouponRun, ...]:
+    return auto_coupon_service.journal(limit=limit)
 
 
 @router.get("/{run_id}", response_model=AutoCouponRun)

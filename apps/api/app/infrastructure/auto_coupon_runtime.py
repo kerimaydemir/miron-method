@@ -77,8 +77,12 @@ async def _settlement_loop(stop_event: asyncio.Event) -> None:
             # Settlement depends on final fixture results, not on the pre-match
             # bookmaker feed still being configured or reachable.
             settled = await auto_coupon_service.settle_pending()
-            if settled:
-                logger.info("Automatic coupon selections settled", extra={"count": settled})
+            reviewed = await auto_coupon_service.review_daily_predictions()
+            if settled or reviewed:
+                logger.info(
+                    "Automatic coupon journal updated",
+                    extra={"settled": settled, "reviewed": reviewed},
+                )
         except Exception as error:
             logger.warning(
                 "Automatic coupon settlement failed",

@@ -121,19 +121,85 @@ export type CouponTicket = {
   risk_label: "düşük" | "orta" | "yüksek";
 };
 
+export type DailyPrediction = {
+  prediction_id: string;
+  fixture: Fixture;
+  league: LeaguePolicy;
+  pick: Pick;
+  market_key:
+    | "h2h"
+    | "draw_no_bet"
+    | "btts"
+    | "totals"
+    | "alternate_totals"
+    | "team_totals"
+    | "alternate_team_totals";
+  market_label: string;
+  outcome_label: string;
+  market_description: string | null;
+  line: string | null;
+  probability: string;
+  market_decimal_odds: string | null;
+  market_fair_probability: string | null;
+  bookmaker_count: number;
+  confidence: string;
+  score: string;
+  tier: "journal_only" | "watchlist" | "coupon_candidate";
+  reasons: string[];
+  risks: string[];
+  observed_at: string;
+};
+
+export type DailyReviewReport = {
+  reviewed_at: string;
+  total_predictions: number;
+  settled_predictions: number;
+  wins: number;
+  losses: number;
+  voids: number;
+  hit_rate: string | null;
+  average_odds: string | null;
+  brier_score: string | null;
+  equal_stake_roi: string | null;
+  summary: string;
+  items: Array<{
+    prediction_id: string;
+    fixture_id: string;
+    pick: Pick;
+    status: "won" | "lost" | "void";
+    final_home_score: number;
+    final_away_score: number;
+    probability: string;
+    market_decimal_odds: string | null;
+    process_verdict:
+      | "sound_win"
+      | "lucky_win"
+      | "sound_but_unlucky_loss"
+      | "bad_process_loss"
+      | "insufficient_data";
+    explanation: string;
+    lesson: string;
+  }>;
+};
+
 export type AutoCouponRun = {
   schema_version: "auto-coupon.v1";
   run_id: string;
   state: "completed" | "settled";
-  source_mode: "bookmaker_live" | "fixture_live_model_odds";
+  source_mode:
+    | "bookmaker_live"
+    | "fixture_live_model_odds"
+    | "fixture_live_no_odds";
   observed_at: string;
   allowed_leagues: LeaguePolicy[];
   covered_league_keys: string[];
   initial_candidates: AutoCandidate[];
   rough_decision: FunnelDecision;
   critic_decision: FunnelDecision;
+  daily_predictions: DailyPrediction[];
   selections: CouponSelection[];
   tickets: CouponTicket[];
+  post_match_review: DailyReviewReport | null;
   rag_case_count: number;
   actual_cost_usd: string;
   notice: string;
