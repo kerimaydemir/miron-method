@@ -86,6 +86,22 @@ sources:
     credential: none
     required_for_auto_coupon: false
     stages: [S12]
+  espn_public_soccer:
+    role: no_key_public_news_roster_injury_schedule_summary_cross_check
+    credential: none
+    required_for_auto_coupon: false
+    runtime_status: wired_optional_deep_evidence_provider
+    access_note: Public ESPN site JSON endpoints are no-key but undocumented; use as fail-soft evidence, not betting-market truth.
+    endpoints:
+      - /{league}/scoreboard?dates=YYYYMMDD
+      - /{league}/summary?event={event_id}
+      - /{league}/teams/{team_id}/roster
+      - /{league}/teams/{team_id}/injuries
+      - /{league}/teams/{team_id}/schedule
+      - /{league}/news
+      - https://sports.core.api.espn.com/v2/sports/soccer/leagues/{league}/events?dates=YYYYMMDD
+      - https://sports.core.api.espn.com/v2/sports/soccer/leagues/{league}/events/{event_id}
+    stages: [S01, S02, S03, S04, S05, S06, S07, S14, S16]
   statsbomb_open_data:
     role: historical_rag_and_backtest_seed
     credential: none

@@ -45,6 +45,10 @@ class Settings(BaseSettings):
     RAPIDAPI_DEEP_REQUEST_LIMIT: int = Field(default=4, ge=1, le=8)
     OPEN_METEO_FORECAST_BASE_URL: str = "https://api.open-meteo.com/v1"
     OPEN_METEO_GEOCODING_BASE_URL: str = "https://geocoding-api.open-meteo.com/v1"
+    ESPN_ENABLED: bool = True
+    ESPN_BASE_URL: str = "https://site.api.espn.com/apis/site/v2/sports/soccer"
+    ESPN_CORE_BASE_URL: str = "https://sports.core.api.espn.com/v2/sports/soccer"
+    ESPN_SOCCER_LEAGUES: str = "eng.1,esp.1,ita.1,ger.1,fra.1,ned.1,por.1,tur.1,uefa.champions"
     THESPORTSDB_API_KEY: SecretStr = SecretStr("123")
     THESPORTSDB_BASE_URL: str = "https://www.thesportsdb.com/api/v1/json"
     THESPORTSDB_ENABLED: bool = False
@@ -118,6 +122,18 @@ class Settings(BaseSettings):
             self.THESPORTSDB_ENABLED
             and self.THESPORTSDB_API_KEY.get_secret_value()
             and self.THESPORTSDB_BASE_URL
+        )
+
+    @property
+    def espn_enabled(self) -> bool:
+        return bool(self.ESPN_ENABLED and self.ESPN_BASE_URL and self.espn_soccer_leagues)
+
+    @property
+    def espn_soccer_leagues(self) -> tuple[str, ...]:
+        return tuple(
+            item.strip().strip("/")
+            for item in self.ESPN_SOCCER_LEAGUES.split(",")
+            if item.strip()
         )
 
     @property

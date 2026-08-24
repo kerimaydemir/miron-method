@@ -8,6 +8,7 @@ from app.infrastructure.analysis_repository import (
 from app.infrastructure.api_football_provider import ApiFootballProvider
 from app.infrastructure.composite_deep_evidence_provider import CompositeDeepEvidenceProvider
 from app.infrastructure.config_loader import load_model_registry, load_provider_registry
+from app.infrastructure.espn_soccer_provider import EspnSoccerProvider
 from app.infrastructure.fixture_runtime import analysis_fixture_provider, rapidapi_provider
 from app.infrastructure.lock_object_store import S3LockObjectStore
 from app.infrastructure.open_meteo_provider import OpenMeteoProvider
@@ -44,6 +45,14 @@ gemini_analyzer = (
 )
 
 configured_deep_evidence_providers: list[DeepEvidenceProvider] = []
+if settings.espn_enabled:
+    configured_deep_evidence_providers.append(
+        EspnSoccerProvider(
+            base_url=settings.ESPN_BASE_URL,
+            core_base_url=settings.ESPN_CORE_BASE_URL,
+            league_paths=settings.espn_soccer_leagues,
+        )
+    )
 if settings.sportmonks_enabled:
     configured_deep_evidence_providers.append(
         SportmonksProvider(
@@ -92,10 +101,6 @@ analysis_service = AnalysisRunService(
 
 
 async def stop_analysis_runtime() -> None:
-    if isinstance(
-        deep_evidence_provider,
-        (ApiFootballProvider, SportmonksProvider, TheSportsDbProvider),
-    ):
-        await deep_evidence_provider.close()
-    if isinstance(deep_evidence_provider, CompositeDeepEvidenceProvider):
-        await deep_evidence_provider.close()
+    close = getattr(deep_evidence_provider, "close", None)
+    if close is not None:
+        await close()

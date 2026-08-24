@@ -66,6 +66,12 @@ providers:
     approval_status: public_free_json_api_unverified_in_runtime
     allowed_methods: [GET]
     forbidden_actions: [bet_placement, account_automation, restricted_scraping]
+  espn_public_soccer:
+    provider_type: optional_metadata
+    enabled: true
+    approval_status: no_key_public_json_enrichment
+    allowed_methods: [GET]
+    forbidden_actions: [bet_placement, account_automation, restricted_scraping]
   scorebat:
     provider_type: optional_video_context
     enabled: true
