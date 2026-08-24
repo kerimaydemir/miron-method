@@ -202,3 +202,68 @@ def test_daily_journal_prefers_richer_settleable_market_over_plain_h2h() -> None
 
     assert quote is not None
     assert quote.market_key == "totals"
+
+
+def test_daily_journal_can_surface_exotic_watchlist_market_without_coupon_lock() -> None:
+    now = datetime(2026, 8, 24, 9, 0, tzinfo=UTC)
+    league = TOP_LEAGUES[0]
+    candidate = AutoCandidate(
+        fixture=fixture("epl"),
+        league=league,
+        auto_score=88,
+        memory_case_count=0,
+        positive_factors=("Premier League izin listesinde",),
+        risk_flags=("Kadro kapanışa kadar değişebilir",),
+    )
+    market = MarketOdds(
+        provider="odds_api_io",
+        event_id="fixture-1",
+        observed_at=now,
+        bookmaker_count=4,
+        home_decimal=Decimal("1.80"),
+        draw_decimal=Decimal("3.50"),
+        away_decimal=Decimal("4.50"),
+        fair_home_probability=Decimal(".55"),
+        fair_draw_probability=Decimal(".25"),
+        fair_away_probability=Decimal(".20"),
+        quotes=(
+            MarketQuote(
+                provider="odds_api_io",
+                observed_at=now,
+                market_key="h2h",
+                market_label="Maç sonucu",
+                outcome_key="home",
+                outcome_label="Ev sahibi",
+                decimal_odds=Decimal("1.80"),
+                fair_probability=Decimal(".55"),
+                bookmaker_count=4,
+            ),
+            MarketQuote(
+                provider="odds_api_io",
+                observed_at=now,
+                market_key="corners_spread",
+                market_label="Korner handikap",
+                outcome_key="away",
+                outcome_label="Deplasman",
+                point=Decimal("1.5"),
+                decimal_odds=Decimal("1.92"),
+                fair_probability=Decimal(".58"),
+                bookmaker_count=4,
+            ),
+        ),
+    )
+
+    quote = AutoCouponService._journal_quote(candidate, market, now)
+
+    assert quote is not None
+    assert quote.market_key == "corners_spread"
+    assert (
+        AutoCouponService._settlement_status(
+            "corners_spread:match:away:1.5",
+            fixture("epl").model_copy(
+                update={"home_score": 2, "away_score": 1, "status": "finished"}
+            ),
+            "home",
+        )
+        == "void"
+    )

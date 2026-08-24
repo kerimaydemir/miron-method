@@ -131,3 +131,45 @@ def test_market_level_forecast_probability_overrides_generic_xg_model() -> None:
 
     assert selected is not None
     assert selected[1] == Decimal(".72")
+
+
+def test_unsettleable_exotic_market_is_not_locked_as_coupon() -> None:
+    quote = MarketQuote(
+        observed_at=NOW,
+        market_key="corners_spread",
+        market_label="Korner handikap",
+        outcome_key="away",
+        outcome_label="Deplasman",
+        point=Decimal("1.5"),
+        decimal_odds=Decimal("1.95"),
+        fair_probability=Decimal(".52"),
+        bookmaker_count=3,
+    )
+    market = MarketOdds(
+        observed_at=NOW,
+        bookmaker_count=3,
+        home_decimal=Decimal("2.20"),
+        draw_decimal=Decimal("3.30"),
+        away_decimal=Decimal("3.00"),
+        fair_home_probability=Decimal(".42"),
+        fair_draw_probability=Decimal(".28"),
+        fair_away_probability=Decimal(".30"),
+        quotes=(quote,),
+    )
+    forecast = _forecast(".45").model_copy(
+        update={
+            "market_probabilities": (
+                MarketProbability(
+                    market_key="corners_spread",
+                    outcome_key="away",
+                    line=Decimal("1.5"),
+                    probability=Decimal(".74"),
+                    rationale="Korner üretim farkı deplasman handikapını destekliyor.",
+                ),
+            )
+        }
+    )
+
+    selected = AutoCouponService._best_market_selection(market, forecast, FIXTURE, NOW)
+
+    assert selected is None

@@ -140,9 +140,7 @@ class AutoCouponService:
             raise ValueError("AUTO_COUPON_DEEP_ANALYSIS_NOT_READY")
         run_id = uuid5(NAMESPACE_URL, f"miron-baba-ai:auto-coupon:{idempotency_key}")
         existing = self._repository.load(run_id)
-        refresh_existing_journal = (
-            existing is not None and not existing.daily_predictions and not existing.selections
-        )
+        refresh_existing_journal = existing is not None and not existing.selections
         if existing is not None and not refresh_existing_journal:
             return existing
         now = datetime.now(UTC)
@@ -768,7 +766,7 @@ class AutoCouponService:
             if quote.bookmaker_count >= 1 and now - quote.observed_at <= timedelta(hours=24)
         )
         quotes = fresh_quotes or market.quotes
-        reviewable = tuple(quote for quote in quotes if cls._settleable_market(quote.market_key))
+        reviewable = tuple(quote for quote in quotes if cls._journalable_market(quote.market_key))
         quotes = reviewable or quotes
         preferred = tuple(quote for quote in quotes if quote.decimal_odds >= Decimal("1.35"))
         pool = preferred or quotes
@@ -803,6 +801,25 @@ class AutoCouponService:
         }
 
     @staticmethod
+    def _journalable_market(market_key: str) -> bool:
+        return market_key in {
+            "h2h",
+            "draw_no_bet",
+            "double_chance",
+            "btts",
+            "totals",
+            "alternate_totals",
+            "team_totals",
+            "alternate_team_totals",
+            "spread",
+            "odd_even",
+            "first_half_h2h",
+            "first_half_totals",
+            "corners_spread",
+            "cards_spread",
+        }
+
+    @staticmethod
     def _market_depth_bonus(market_key: str) -> Decimal:
         return {
             "spread": Decimal("9"),
@@ -810,6 +827,10 @@ class AutoCouponService:
             "alternate_totals": Decimal("8"),
             "btts": Decimal("7"),
             "draw_no_bet": Decimal("6"),
+            "corners_spread": Decimal("6"),
+            "cards_spread": Decimal("5"),
+            "first_half_totals": Decimal("5"),
+            "first_half_h2h": Decimal("4"),
             "odd_even": Decimal("4"),
             "double_chance": Decimal("3"),
             "h2h": Decimal("0"),
@@ -1095,6 +1116,8 @@ class AutoCouponService:
             if quote.bookmaker_count < minimum_books or now - quote.observed_at > timedelta(
                 minutes=15
             ):
+                continue
+            if not cls._settleable_market(quote.market_key):
                 continue
             probability = cls._model_market_probability(forecast, fixture, quote)
             if probability is None or probability < MIN_SELECTION_PROBABILITY:
