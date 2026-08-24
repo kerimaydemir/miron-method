@@ -44,12 +44,14 @@ class AnalysisRunService:
         analyzer: GeminiAnalysisService | None = None,
         fixture_provider: AnalysisFixtureProvider | None = None,
         deep_evidence_provider: DeepEvidenceProvider | None = None,
+        analysis_timeout_seconds: int = 240,
     ) -> None:
         self.clock = clock
         self.repository = repository or NullAnalysisRepository()
         self.analyzer = analyzer
         self.fixture_provider = fixture_provider
         self.deep_evidence_provider = deep_evidence_provider
+        self._analysis_timeout_seconds = analysis_timeout_seconds
         self._runs: dict[UUID, AnalysisRunView] = {}
         self._keys: dict[str, tuple[str, UUID]] = {}
         self._locks: dict[UUID, PredictionLockView] = {}
@@ -146,11 +148,24 @@ class AnalysisRunService:
                             "error": str(error),
                         },
                     )
-            gemini_result = (
-                await self.analyzer.analyze(fixture, factors, now, deep_evidence)
-                if self.analyzer is not None
-                else None
-            )
+            try:
+                gemini_result = (
+                    await asyncio.wait_for(
+                        self.analyzer.analyze(fixture, factors, now, deep_evidence),
+                        timeout=self._analysis_timeout_seconds,
+                    )
+                    if self.analyzer is not None
+                    else None
+                )
+            except TimeoutError as error:
+                logger.warning(
+                    "Gemini analysis timed out",
+                    extra={
+                        "fixture_id": str(fixture.id),
+                        "timeout_seconds": self._analysis_timeout_seconds,
+                    },
+                )
+                raise RuntimeError("GEMINI_ANALYSIS_TIMED_OUT") from error
             stage_summaries = gemini_result.stage_summaries if gemini_result else {}
             stage_costs = gemini_result.stage_costs if gemini_result else {}
             completed_stage_ids = {"S00", "S30", *stage_summaries}

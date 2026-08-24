@@ -480,14 +480,59 @@ class GeminiAnalysisService:
                 "fixture": fixture.model_dump(mode="json"),
                 "triage_signals": factors.model_dump(mode="json"),
                 "cutoff_at": cutoff_at.isoformat(),
-                "deep_football_evidence": (
-                    deep_evidence.compact_packet() if deep_evidence is not None else None
+                "deep_football_evidence": GeminiAnalysisService._prompt_deep_evidence(
+                    deep_evidence
                 ),
                 "important_limitation": limitation,
             },
             ensure_ascii=False,
             sort_keys=True,
         )
+
+    @staticmethod
+    def _prompt_deep_evidence(
+        deep_evidence: DeepFootballEvidence | None,
+    ) -> dict[str, object] | None:
+        if deep_evidence is None:
+            return None
+        for records_per_artifact, record_char_limit in ((2, 2_500), (1, 1_500), (0, 0)):
+            packet = deep_evidence.compact_packet(
+                records_per_artifact=records_per_artifact,
+                record_char_limit=record_char_limit,
+            )
+            serialized = json.dumps(packet, ensure_ascii=False, separators=(",", ":"))
+            if len(serialized) <= 120_000:
+                if records_per_artifact == 0:
+                    packet["prompt_compaction_note"] = (
+                        "Ham kayıtlar Gemini prompt sınırı için çıkarıldı; coverage, record_count "
+                        "ve artifact türleri korunuyor."
+                    )
+                elif records_per_artifact < 2:
+                    packet["prompt_compaction_note"] = (
+                        "Ham kayıtlar Gemini prompt sınırı için kısaltıldı; tam kanıt deposunda "
+                        "saklanır."
+                    )
+                return packet
+        return {
+            "provider": deep_evidence.provider,
+            "provider_fixture_id": deep_evidence.provider_fixture_id,
+            "observed_at": deep_evidence.observed_at.isoformat(),
+            "coverage": deep_evidence.coverage,
+            "artifacts": [
+                {
+                    "kind": artifact.kind,
+                    "endpoint": artifact.endpoint,
+                    "observed_at": artifact.observed_at.isoformat(),
+                    "record_count": len(artifact.records),
+                    "records": [],
+                }
+                for artifact in deep_evidence.artifacts
+            ],
+            "prompt_compaction_note": (
+                "Kanıt paketi çok büyük olduğu için prompt'a yalnız metadata verildi; ham "
+                "kanıt analysis evidence dossier içinde saklanır."
+            ),
+        }
 
     @staticmethod
     async def _research_with_fallback(

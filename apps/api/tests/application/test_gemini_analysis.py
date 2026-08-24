@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from app.application.gemini_analysis import GeminiAnalysisService
+from app.domain.deep_evidence import DeepFootballEvidence, EvidenceArtifact
 from app.infrastructure.config_loader import load_model_registry, load_provider_registry
 from app.infrastructure.gemini_client import GeminiJsonRequest, GeminiJsonResult
 from app.infrastructure.mock_fixture_provider import FEATURES, FIXTURES
@@ -118,3 +119,39 @@ async def test_three_gemini_models_fill_all_deep_stages_with_valid_costs() -> No
     assert set(result.stage_costs) == {f"S{stage:02d}" for stage in range(1, 30)}
     assert set(result.stage_summaries) == {f"S{stage:02d}" for stage in range(1, 30)}
     assert "sentezlendi" in result.stage_summaries["S29"]
+
+
+def test_deep_evidence_packet_is_compacted_for_gemini_prompt_limit() -> None:
+    observed_at = datetime(2026, 8, 22, 8, tzinfo=UTC)
+    large_record = {
+        "headline": "Team news",
+        "body": "Osasuna Levante " * 20_000,
+        "players": [{"name": f"Player {index}", "note": "available"} for index in range(100)],
+    }
+    evidence = DeepFootballEvidence(
+        provider="espn_public_soccer+api_football",
+        provider_fixture_id="fixture-1",
+        observed_at=observed_at,
+        home_team_id=1,
+        away_team_id=2,
+        league_id=140,
+        season=2026,
+        artifacts=tuple(
+            EvidenceArtifact(
+                kind=f"artifact_{index}",
+                endpoint=f"/endpoint/{index}",
+                observed_at=observed_at,
+                records=(large_record, large_record, large_record),
+            )
+            for index in range(45)
+        ),
+        coverage={"fixture": True, "news": True, "rosters": True},
+    )
+
+    packet = GeminiAnalysisService._evidence_packet(
+        FIXTURES[0], FEATURES[0], observed_at, evidence
+    )
+
+    assert len(packet) < 200_000
+    assert "prompt_compaction_note" in packet
+    assert "record_count" in packet

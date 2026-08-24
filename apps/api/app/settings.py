@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     GEMINI_API_KEY: SecretStr = SecretStr("")
     GEMINI_API_BASE_URL: str = "https://generativelanguage.googleapis.com/v1beta"
     GEMINI_ENABLED: bool = False
+    GEMINI_ANALYSIS_TIMEOUT_SECONDS: int = Field(default=240, ge=30, le=900)
     CONFIG_DIR: Path = Path("/workspace/config")
     LIVE_FIXTURES_ENABLED: bool = False
     OPENLIGADB_BASE_URL: str = "https://api.openligadb.de"

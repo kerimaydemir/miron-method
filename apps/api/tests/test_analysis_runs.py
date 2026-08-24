@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 import json
 from datetime import UTC, datetime
@@ -25,6 +26,11 @@ class _BrokenDeepEvidenceProvider:
 class _BrokenFeatureFixtureProvider(MockFixtureProvider):
     async def features_for(self, fixture: CanonicalFixture):  # type: ignore[no-untyped-def]
         raise RuntimeError("feature provider temporary failure")
+
+
+class _SlowAnalyzer:
+    async def analyze(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+        await asyncio.sleep(1)
 
 
 @pytest.mark.asyncio
@@ -64,6 +70,24 @@ async def test_analysis_continues_when_fixture_feature_enrichment_fails() -> Non
     assert run.fixture_id == FIXTURES[2].id
     assert run.forecast.analysis_provider == "mock"
     assert run.state == "LOCKING"
+
+
+@pytest.mark.asyncio
+async def test_analysis_times_out_instead_of_hanging_forever() -> None:
+    run_service = AnalysisRunService(
+        clock=lambda: datetime(2026, 8, 24, 12, tzinfo=UTC),
+        fixture_provider=MockFixtureProvider(),
+        analyzer=_SlowAnalyzer(),  # type: ignore[arg-type]
+        analysis_timeout_seconds=0.01,  # type: ignore[arg-type]
+    )
+
+    with pytest.raises(RuntimeError, match="GEMINI_ANALYSIS_TIMED_OUT"):
+        await run_service.start(
+            FIXTURES[2].id,
+            "analysis-timeout",
+            "request-hash",
+            FIXTURES[2].id,
+        )
 
 
 def test_full_mock_analysis_chief_probability_and_immutable_replay() -> None:

@@ -97,6 +97,7 @@ analysis_service = AnalysisRunService(
     gemini_analyzer,
     analysis_fixture_provider,
     deep_evidence_provider,
+    analysis_timeout_seconds=settings.GEMINI_ANALYSIS_TIMEOUT_SECONDS,
 )
 
 

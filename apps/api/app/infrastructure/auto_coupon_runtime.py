@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from contextlib import suppress
 
 from app.application.auto_coupons import AutoCouponService
 from app.application.gemini_coupon_funnel import GeminiCouponFunnel
@@ -66,7 +67,9 @@ async def stop_auto_coupon_runtime() -> None:
     if _stop_event is not None:
         _stop_event.set()
     if _settlement_task is not None:
-        await _settlement_task
+        _settlement_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await _settlement_task
         _settlement_task = None
     _stop_event = None
 

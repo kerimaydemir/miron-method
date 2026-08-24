@@ -29,7 +29,9 @@ class DeepFootballEvidence(BaseModel):
     artifacts: tuple[EvidenceArtifact, ...]
     coverage: dict[str, bool]
 
-    def compact_packet(self, *, records_per_artifact: int = 30) -> dict[str, Any]:
+    def compact_packet(
+        self, *, records_per_artifact: int = 30, record_char_limit: int = 20_000
+    ) -> dict[str, Any]:
         return {
             "provider": self.provider,
             "provider_fixture_id": self.provider_fixture_id,
@@ -42,7 +44,7 @@ class DeepFootballEvidence(BaseModel):
                     "observed_at": artifact.observed_at.isoformat(),
                     "record_count": len(artifact.records),
                     "records": [
-                        self._bounded_record(record)
+                        self._bounded_record(record, record_char_limit=record_char_limit)
                         for record in artifact.records[:records_per_artifact]
                     ],
                 }
@@ -51,13 +53,13 @@ class DeepFootballEvidence(BaseModel):
         }
 
     @staticmethod
-    def _bounded_record(record: dict[str, Any]) -> dict[str, Any]:
+    def _bounded_record(record: dict[str, Any], *, record_char_limit: int = 20_000) -> dict[str, Any]:
         serialized = json.dumps(record, ensure_ascii=False, separators=(",", ":"))
-        if len(serialized) <= 20_000:
+        if len(serialized) <= record_char_limit:
             return record
         return {
             "truncated": True,
-            "json_prefix": serialized[:20_000],
+            "json_prefix": serialized[:record_char_limit],
             "original_characters": len(serialized),
         }
 
