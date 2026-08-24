@@ -85,12 +85,22 @@ class FallbackFixtureProvider:
     async def get_fixture(self, fixture_id: UUID) -> CanonicalFixture:
         try:
             return await self._primary.get_fixture(fixture_id)
-        except KeyError:
+        except Exception as error:
+            logger.warning(
+                "Primary fixture lookup failed; using fallback",
+                extra={"error_type": type(error).__name__},
+            )
             return await self._fallback.get_fixture(fixture_id)
 
     async def features_for(self, fixture: CanonicalFixture) -> TriageFactors:
         if fixture.source_provider == self._primary.source_name:
-            return await self._primary.features_for(fixture)
+            try:
+                return await self._primary.features_for(fixture)
+            except Exception as error:
+                logger.warning(
+                    "Primary fixture features failed; using fallback",
+                    extra={"error_type": type(error).__name__},
+                )
         return await self._fallback.features_for(fixture)
 
     async def refresh_result(self, fixture_id: UUID) -> CanonicalFixture:

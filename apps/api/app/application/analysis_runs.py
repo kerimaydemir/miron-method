@@ -1,9 +1,12 @@
 import asyncio
 import hashlib
+import logging
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from uuid import NAMESPACE_URL, UUID, uuid5
+
+import httpx
 
 from app.application.gemini_analysis import GeminiAnalysisService
 from app.domain.analysis import (
@@ -17,6 +20,7 @@ from app.domain.analysis import (
     StageView,
 )
 from app.domain.deep_evidence import DeepEvidenceProvider
+from app.domain.fixtures import CanonicalFixture, TriageFactors
 from app.domain.ports import AnalysisFixtureProvider
 from app.infrastructure.analysis_repository import (
     AnalysisRepository,
@@ -24,6 +28,8 @@ from app.infrastructure.analysis_repository import (
     canonical_json,
 )
 from app.infrastructure.mock_fixture_provider import FEATURES, FIXTURES
+
+logger = logging.getLogger(__name__)
 
 
 class AnalysisRunService:
@@ -87,9 +93,27 @@ class AnalysisRunService:
             if self.fixture_provider is not None:
                 try:
                     fixture = await self.fixture_provider.get_fixture(fixture_id)
-                    factors = await self.fixture_provider.features_for(fixture)
                 except KeyError as error:
                     raise KeyError("FIXTURE_NOT_FOUND") from error
+                try:
+                    factors = await self.fixture_provider.features_for(fixture)
+                except (
+                    TimeoutError,
+                    PermissionError,
+                    KeyError,
+                    RuntimeError,
+                    ValueError,
+                    httpx.HTTPError,
+                ) as error:
+                    logger.warning(
+                        "Fixture feature enrichment unavailable; using degraded triage factors",
+                        extra={
+                            "fixture_id": str(fixture.id),
+                            "error_type": type(error).__name__,
+                            "error": str(error),
+                        },
+                    )
+                    factors = self._degraded_factors(fixture)
             else:
                 fixture_index = next(
                     (index for index, item in enumerate(FIXTURES) if item.id == fixture_id), None
@@ -102,11 +126,26 @@ class AnalysisRunService:
             if fixture.kickoff_at <= now:
                 raise ValueError("INVALID_CUTOFF")
             run_id = uuid5(NAMESPACE_URL, f"miron-baba-ai:analysis:{idempotency_key}")
-            deep_evidence = (
-                await self.deep_evidence_provider.collect(fixture)
-                if self.deep_data_ready and self.deep_evidence_provider is not None
-                else None
-            )
+            deep_evidence = None
+            if self.deep_data_ready and self.deep_evidence_provider is not None:
+                try:
+                    deep_evidence = await self.deep_evidence_provider.collect(fixture)
+                except (
+                    TimeoutError,
+                    PermissionError,
+                    KeyError,
+                    RuntimeError,
+                    ValueError,
+                    httpx.HTTPError,
+                ) as error:
+                    logger.warning(
+                        "Deep evidence unavailable; continuing with fixture and odds evidence",
+                        extra={
+                            "fixture_id": str(fixture.id),
+                            "error_type": type(error).__name__,
+                            "error": str(error),
+                        },
+                    )
             gemini_result = (
                 await self.analyzer.analyze(fixture, factors, now, deep_evidence)
                 if self.analyzer is not None
@@ -231,6 +270,24 @@ class AnalysisRunService:
             raise KeyError("EVIDENCE_NOT_FOUND")
         self._evidence[run_id] = dossier
         return dossier
+
+    @staticmethod
+    def _degraded_factors(fixture: CanonicalFixture) -> TriageFactors:
+        odds_backed = fixture.source_provider in {"the_odds_api", "odds_api_io", "api_football"}
+        return TriageFactors(
+            coverage_score=Decimal("0.45"),
+            source_freshness_score=Decimal("0.45"),
+            competitive_relevance_score=Decimal("0.75"),
+            model_information_gain_score=Decimal("0.55"),
+            market_coverage_score=Decimal("0.80") if odds_backed else Decimal("0.40"),
+            lineup_uncertainty_resolvability=Decimal("0.35"),
+            user_interest_score=Decimal("0.65"),
+            historical_case_support=Decimal("0.35"),
+            kickoff_time_practicality=Decimal("0.70"),
+            estimated_cost_penalty=Decimal("0.12"),
+            unresolved_identity_penalty=Decimal("0.20"),
+            stale_data_penalty=Decimal("0.30"),
+        )
 
     @staticmethod
     def _summary(stage_id: str, *, live_gemini: bool = False) -> str:

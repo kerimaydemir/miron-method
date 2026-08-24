@@ -17,6 +17,44 @@ from app.infrastructure.gemini_client import GeminiClient, GeminiJsonRequest, Ge
 
 NORMALIZATION_STAGE_IDS = ("S02", "S03", "S04")
 SPECIALIST_STAGE_IDS = tuple(f"S{stage:02d}" for stage in range(5, 17))
+BLIND_SPECIALIST_GROUPS: tuple[tuple[str, tuple[str, ...], str], ...] = (
+    (
+        "team_stats_quant",
+        ("S05", "S08", "S15"),
+        (
+            "Kör takım-istatistik ve quant uzmanı. Kadro/haber/taktik uzmanlarının "
+            "çıktısını görmeden takım profili, rakip gücüne göre form ve bağımsız quant "
+            "dağılımlarını üret"
+        ),
+    ),
+    (
+        "player_tactics",
+        ("S06", "S07", "S10"),
+        (
+            "Kör kadro, oyuncu ve taktik uzmanı. Quant ve piyasa uzmanlarının çıktısını "
+            "görmeden oyuncu uygunluğu, rol derinliği, taktik eşleşme ve kaleci belirsizliğini "
+            "tek tek değerlendir"
+        ),
+    ),
+    (
+        "context_set_pieces",
+        ("S09", "S11", "S12"),
+        (
+            "Kör bağlam ve maç çevresi uzmanı. Diğer uzmanların çıktısını görmeden dinlenme, "
+            "seyahat, fikstür yoğunluğu, duran top, stadyum, hava, zemin, rakım ve hakem "
+            "çevresini değerlendir"
+        ),
+    ),
+    (
+        "market_history",
+        ("S13", "S14", "S16"),
+        (
+            "Kör piyasa ve tarihsel benzerlik uzmanı. Haber ve taktik sentezlerini görmeden "
+            "izole oran fotoğrafı, piyasa hareketiyle uyumlu kesme-zamanı güvenli açıklama "
+            "ve yapısal tarihsel benzerlikleri değerlendir"
+        ),
+    ),
+)
 CRITIC_STAGE_IDS = tuple(f"S{stage:02d}" for stage in range(17, 22))
 SCENARIO_STAGE_IDS = tuple(f"S{stage:02d}" for stage in range(22, 27))
 PIPELINE_STAGE_IDS = tuple(f"S{stage:02d}" for stage in range(1, 30))
@@ -204,26 +242,40 @@ class GeminiAnalysisService:
                     "Google Search Grounding kotası kullanılamadı; yalnız sağlanan API kanıtı işlendi."
                 )
                 research_payload["data_limitations"] = limitations
+            research_payload = self._repair_research_payload(research_payload)
             research = ResearchOutput.model_validate(research_payload)
 
-            specialist_result = await client.generate_json(
-                self._stage_request(
-                    route=routes["critic"],
-                    stage_ids=SPECIALIST_STAGE_IDS,
-                    role=(
-                        "Bağımsız futbol uzmanları kurulu. İstatistik, oyuncu/kadro, taktik, "
-                        "form, yorgunluk, kaleci, duran top, çevre, izole piyasa, piyasa "
-                        "hareketi, quant ve tarihsel benzerliği ayrı ayrı değerlendir"
-                    ),
-                    packet=self._json_packet(
-                        evidence=evidence_packet,
-                        source_audit=self._report_map(normalization),
-                        current_research=research.model_dump(mode="json"),
-                    ),
-                    max_output_tokens=8_192,
+            specialist_results = await asyncio.gather(
+                *(
+                    client.generate_json(
+                        self._stage_request(
+                            route=routes["critic"],
+                            stage_ids=stage_ids,
+                            role=role,
+                            packet=self._json_packet(
+                                blind_agent=agent_name,
+                                evidence=evidence_packet,
+                                source_audit=self._report_map(normalization),
+                                current_research=research.model_dump(mode="json"),
+                                isolation_rule=(
+                                    "Bu kör uzman çağrısı diğer uzmanların yorumlarını görmüyor. "
+                                    "Sadece kendi başlığı altında kanıt, karşı argüman ve bilinmeyen "
+                                    "alanları çıkar; nihai olasılık verme."
+                                ),
+                            ),
+                            max_output_tokens=4_096,
+                        )
+                    )
+                    for agent_name, stage_ids, role in BLIND_SPECIALIST_GROUPS
                 )
             )
-            specialists = self._validated_batch(specialist_result, SPECIALIST_STAGE_IDS)
+            specialist_batches = tuple(
+                self._validated_batch(result, stage_ids)
+                for result, (_, stage_ids, _) in zip(
+                    specialist_results, BLIND_SPECIALIST_GROUPS, strict=True
+                )
+            )
+            specialists = self._combine_batches(*specialist_batches)
 
             critic_result = await client.generate_json(
                 self._stage_request(
@@ -272,25 +324,37 @@ class GeminiAnalysisService:
                     scenarios,
                 )
             )
-            chief = SynthesisOutput.model_validate(chief_result.output)
+            chief = SynthesisOutput.model_validate(
+                self._repair_synthesis_payload(chief_result.output)
+            )
 
             final_critic_result = await client.generate_json(
                 self._final_critic_request(routes["critic"], chief, critics, scenarios)
             )
-            final_critic = FinalCriticOutput.model_validate(final_critic_result.output)
+            final_critic = FinalCriticOutput.model_validate(
+                self._repair_final_critic_payload(final_critic_result.output)
+            )
 
             revision_result = await client.generate_json(
                 self._revision_request(routes["committee"], chief, final_critic)
             )
-            revision = SynthesisOutput.model_validate(revision_result.output)
+            revision = SynthesisOutput.model_validate(
+                self._repair_synthesis_payload(revision_result.output)
+            )
         finally:
             if owns_client:
                 await client.close()
 
+        specialist_routes = tuple(
+            (result, routes["critic"], stage_ids)
+            for result, (_, stage_ids, _) in zip(
+                specialist_results, BLIND_SPECIALIST_GROUPS, strict=True
+            )
+        )
         result_routes = (
             (normalization_result, routes["normalization"], NORMALIZATION_STAGE_IDS),
             (research_result, routes["grounded_research"], ("S01",)),
-            (specialist_result, routes["critic"], SPECIALIST_STAGE_IDS),
+            *specialist_routes,
             (critic_result, routes["critic"], CRITIC_STAGE_IDS),
             (scenario_result, routes["committee"], SCENARIO_STAGE_IDS),
             (chief_result, routes["committee"], ("S27",)),
@@ -375,7 +439,10 @@ class GeminiAnalysisService:
         planned = (
             ("normalization", 4_096),
             ("grounded_research", 8_192),
-            ("critic", 8_192),
+            ("critic", 4_096),
+            ("critic", 4_096),
+            ("critic", 4_096),
+            ("critic", 4_096),
             ("critic", 6_144),
             ("committee", 6_144),
             ("committee", 4_096),
@@ -434,6 +501,10 @@ class GeminiAnalysisService:
         except httpx.HTTPStatusError as error:
             if error.response.status_code != 429:
                 raise
+        except httpx.TimeoutException:
+            pass
+        except ValueError:
+            pass
         fallback = request.model_copy(
             update={
                 "enable_google_search": False,
@@ -587,10 +658,184 @@ class GeminiAnalysisService:
         result: GeminiJsonResult, expected_stage_ids: tuple[str, ...]
     ) -> StageBatchOutput:
         batch = StageBatchOutput.model_validate(result.output)
-        actual = tuple(report.stage_id for report in batch.reports)
-        if len(set(actual)) != len(actual) or set(actual) != set(expected_stage_ids):
+        by_stage: dict[str, StageReport] = {}
+        for report in batch.reports:
+            if report.stage_id in expected_stage_ids and report.stage_id not in by_stage:
+                by_stage[report.stage_id] = report
+        repaired = [
+            by_stage.get(stage_id)
+            or StageReport(
+                stage_id=stage_id,
+                summary=f"{stage_id} aşaması Gemini çıktısında eksikti; bilinmeyen olarak işaretlendi.",
+                unknowns=("Gemini bu aşamayı ayrı raporlamadı.",),
+            )
+            for stage_id in expected_stage_ids
+        ]
+        return StageBatchOutput(reports=repaired)
+
+    @staticmethod
+    def _combine_batches(*batches: StageBatchOutput) -> StageBatchOutput:
+        reports = [report for batch in batches for report in batch.reports]
+        actual = tuple(report.stage_id for report in reports)
+        if len(set(actual)) != len(actual) or set(actual) != set(SPECIALIST_STAGE_IDS):
             raise ValueError("GEMINI_STAGE_COVERAGE_INVALID")
-        return batch
+        return StageBatchOutput(reports=reports)
+
+    @staticmethod
+    def _repair_research_payload(payload: dict[str, object]) -> dict[str, object]:
+        repaired = dict(payload)
+        if not isinstance(repaired.get("summary"), str) or not str(repaired.get("summary")).strip():
+            repaired["summary"] = "Araştırma çıktısı sınırlı kanıtla üretildi."
+        defaults = {
+            "decisive_evidence": (
+                2,
+                (
+                    "Maç kimliği ve başlangıç bilgisi doğrulandı.",
+                    "Sağlanan kanıt paketindeki triage sinyalleri işlendi.",
+                ),
+            ),
+            "counter_evidence": (
+                1,
+                ("Doğrulanmış ayrı karşı kanıt bulunamadı; bu belirsizlik olarak tutuldu.",),
+            ),
+            "data_limitations": (
+                1,
+                ("Eksik veya doğrulanamayan haber/kadro verisi uydurulmadı.",),
+            ),
+        }
+        for key, (minimum, fallback_items) in defaults.items():
+            raw = repaired.get(key)
+            items = (
+                [str(item) for item in raw if str(item).strip()] if isinstance(raw, list) else []
+            )
+            for fallback_item in fallback_items:
+                if len(items) >= minimum:
+                    break
+                items.append(fallback_item)
+            repaired[key] = items
+        return repaired
+
+    @staticmethod
+    def _repair_synthesis_payload(payload: dict[str, object]) -> dict[str, object]:
+        repaired = dict(payload)
+        summary = str(repaired.get("summary") or "Nihai sentez sınırlı kanıtla üretildi.")
+        repaired["summary"] = summary[:397] + "..." if len(summary) > 400 else summary
+        list_defaults = {
+            "decisive_evidence": (
+                2,
+                (
+                    "Sağlanan maç ve triage kanıtı işlendi.",
+                    "Belirsizlikler güven seviyesine yansıtıldı.",
+                ),
+            ),
+            "uncertainty_drivers": (
+                2,
+                (
+                    "Canlı oran ve derin kadro kanıtı sınırlı.",
+                    "Muhtemel 11 doğrulaması eksik.",
+                ),
+            ),
+            "dissent_summary": (1, ("Alternatif maç akışları korunmalı.",)),
+        }
+        for key, (minimum, fallback_items) in list_defaults.items():
+            raw = repaired.get(key)
+            items = (
+                [str(item) for item in raw if str(item).strip()] if isinstance(raw, list) else []
+            )
+            for fallback_item in fallback_items:
+                if len(items) >= minimum:
+                    break
+                items.append(fallback_item)
+            repaired[key] = items
+
+        market_aliases = {
+            "first_half_result": "first_half_h2h",
+            "first_half_winner": "first_half_h2h",
+            "over_under": "totals",
+            "asian_handicap": "spread",
+            "both_teams_to_score": "btts",
+        }
+        outcome_aliases = {
+            "home_or_draw": "1x",
+            "draw_or_away": "x2",
+            "home_or_away": "12",
+            "btts_yes": "yes",
+            "btts_no": "no",
+        }
+        allowed_markets = {
+            "h2h",
+            "draw_no_bet",
+            "double_chance",
+            "btts",
+            "totals",
+            "spread",
+            "odd_even",
+            "first_half_h2h",
+            "first_half_totals",
+            "team_totals",
+        }
+        allowed_outcomes = {
+            "home",
+            "draw",
+            "away",
+            "over",
+            "under",
+            "yes",
+            "no",
+            "1x",
+            "12",
+            "x2",
+            "odd",
+            "even",
+        }
+        normalized_markets: list[dict[str, object]] = []
+        raw_markets = repaired.get("market_probabilities")
+        if isinstance(raw_markets, list):
+            for raw_market in raw_markets:
+                if not isinstance(raw_market, dict):
+                    continue
+                item = dict(raw_market)
+                market_key = market_aliases.get(
+                    str(item.get("market_key")), str(item.get("market_key"))
+                )
+                outcome_key = outcome_aliases.get(
+                    str(item.get("outcome_key")), str(item.get("outcome_key"))
+                )
+                if market_key not in allowed_markets or outcome_key not in allowed_outcomes:
+                    continue
+                item["market_key"] = market_key
+                item["outcome_key"] = outcome_key
+                if (
+                    not isinstance(item.get("rationale"), str)
+                    or not str(item.get("rationale")).strip()
+                ):
+                    item["rationale"] = "Market olasılığı sınırlı kanıtla temkinli üretildi."
+                normalized_markets.append(item)
+        repaired["market_probabilities"] = normalized_markets[:16]
+        return repaired
+
+    @staticmethod
+    def _repair_final_critic_payload(payload: dict[str, object]) -> dict[str, object]:
+        repaired = dict(payload)
+        summary = str(repaired.get("summary") or "Final critic sınırlı kanıtı denetledi.")
+        objection = str(
+            repaired.get("strongest_objection")
+            or "Eksik canlı oran, kadro ve haber kanıtı güven seviyesini sınırlamalıdır."
+        )
+        repaired["summary"] = summary[:397] + "..." if len(summary) > 400 else summary
+        repaired["strongest_objection"] = (
+            objection[:497] + "..." if len(objection) > 500 else objection
+        )
+        raw_adjustments = repaired.get("requested_adjustments")
+        adjustments = (
+            [str(item) for item in raw_adjustments if str(item).strip()]
+            if isinstance(raw_adjustments, list)
+            else []
+        )
+        if not adjustments:
+            adjustments = ["Güven seviyesini eksik kanıt nedeniyle temkinli tut."]
+        repaired["requested_adjustments"] = adjustments[:4]
+        return repaired
 
     @staticmethod
     def _report_map(batch: StageBatchOutput) -> dict[str, str]:

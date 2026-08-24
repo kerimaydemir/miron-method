@@ -1,5 +1,5 @@
 from collections.abc import Sequence
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from typing import Protocol
 from uuid import UUID
 
@@ -60,6 +60,15 @@ class CompositeAnalysisFixtureProvider:
         return tuple({item.id: item for item in (*odds, *base)}.values())
 
     async def get_fixture(self, fixture_id: UUID) -> CanonicalFixture:
+        try:
+            return await self._odds.get_fixture(fixture_id)
+        except KeyError:
+            now = datetime.now(UTC)
+            await self._odds.list_fixtures(
+                start_utc=now - timedelta(hours=12),
+                end_utc=now + timedelta(days=3),
+                competition_ids=(),
+            )
         try:
             return await self._odds.get_fixture(fixture_id)
         except KeyError:

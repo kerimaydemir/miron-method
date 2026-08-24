@@ -51,7 +51,7 @@ class GeminiClient:
         self._api_key = api_key
         self._client = httpx.AsyncClient(
             base_url=base_url.rstrip("/"),
-            timeout=httpx.Timeout(45.0, connect=10.0),
+            timeout=httpx.Timeout(120.0, connect=10.0),
             transport=transport,
         )
 
@@ -63,41 +63,47 @@ class GeminiClient:
         candidates_token_count = 0
         thoughts_token_count = 0
         grounding_sources: tuple[GeminiGroundingSource, ...] = ()
-        generation_config: dict[str, Any] = {
-            "responseMimeType": "application/json",
-            "responseJsonSchema": request.response_schema,
-            "maxOutputTokens": request.max_output_tokens,
-        }
-        if request.thinking_level is not None:
-            generation_config["thinkingConfig"] = {"thinkingLevel": request.thinking_level}
+        generation_config: dict[str, Any] = {"max_output_tokens": request.max_output_tokens}
         if request.thinking_budget is not None:
-            generation_config["thinkingConfig"] = {"thinkingBudget": request.thinking_budget}
+            generation_config["thinking_config"] = {"thinking_budget": request.thinking_budget}
         for attempt in range(4):
             request_body: dict[str, Any] = {
-                "systemInstruction": {"parts": [{"text": request.system_instruction}]},
-                "contents": [{"role": "user", "parts": [{"text": request.prompt}]}],
-                "generationConfig": generation_config,
+                "model": request.model_id,
+                "input": request.prompt,
+                "system_instruction": request.system_instruction,
+                "response_format": {
+                    "type": "text",
+                    "mime_type": "application/json",
+                    "schema": self._gemini_safe_schema(request.response_schema),
+                },
+                "generation_config": generation_config,
+                "store": False,
             }
             if request.enable_google_search:
-                request_body["tools"] = [{"googleSearch": {}}]
-            response = await self._client.post(
-                f"/models/{request.model_id}:generateContent",
-                headers={"x-goog-api-key": self._api_key},
-                json=request_body,
-            )
+                request_body["tools"] = [{"type": "google_search"}]
+            try:
+                response = await self._client.post(
+                    "/interactions",
+                    headers={"x-goog-api-key": self._api_key},
+                    json=request_body,
+                )
+            except httpx.TimeoutException:
+                if request.enable_google_search or attempt == 3:
+                    raise
+                await asyncio.sleep(0.5 * (2**attempt))
+                continue
             if response.status_code in {429, 500, 502, 503, 504} and attempt < 3:
                 await asyncio.sleep(self._retry_delay(response, attempt))
                 continue
             response.raise_for_status()
             payload = response.json()
-            usage = payload.get("usageMetadata", {})
-            prompt_token_count += int(usage.get("promptTokenCount", 0))
-            candidates_token_count += int(usage.get("candidatesTokenCount", 0))
-            thoughts_token_count += int(usage.get("thoughtsTokenCount", 0))
+            usage = payload.get("usage", {})
+            prompt_token_count += int(usage.get("total_input_tokens", 0))
+            candidates_token_count += int(usage.get("total_output_tokens", 0))
+            thoughts_token_count += int(usage.get("total_thought_tokens", 0))
             grounding_sources = self._grounding_sources(payload)
             try:
-                parts = payload["candidates"][0]["content"]["parts"]
-                text_output = "".join(part["text"] for part in parts if "text" in part)
+                text_output = "".join(self._model_output_texts(payload))
                 parsed_output = json.loads(text_output)
                 if not isinstance(parsed_output, dict):
                     raise ValueError("GEMINI_OBJECT_OUTPUT_REQUIRED")
@@ -113,7 +119,7 @@ class GeminiClient:
             raise ValueError("GEMINI_INVALID_STRUCTURED_OUTPUT")
         return GeminiJsonResult(
             model_id=request.model_id,
-            provider_request_id=response.headers.get("x-request-id") or payload.get("responseId"),
+            provider_request_id=response.headers.get("x-request-id") or payload.get("id"),
             output=output,
             prompt_token_count=prompt_token_count,
             candidates_token_count=candidates_token_count,
@@ -156,12 +162,9 @@ class GeminiClient:
 
     @staticmethod
     def _grounding_sources(payload: dict[str, Any]) -> tuple[GeminiGroundingSource, ...]:
-        try:
-            chunks = (
-                payload["candidates"][0].get("groundingMetadata", {}).get("groundingChunks", [])
-            )
-        except (KeyError, IndexError, TypeError):
-            return ()
+        chunks = payload.get("grounding_metadata", {}).get("grounding_chunks", [])
+        if not chunks:
+            chunks = payload.get("groundingMetadata", {}).get("groundingChunks", [])
         sources: list[GeminiGroundingSource] = []
         seen: set[str] = set()
         for chunk in chunks:
@@ -180,3 +183,79 @@ class GeminiClient:
                 )
             )
         return tuple(sources)
+
+    @staticmethod
+    def _model_output_texts(payload: dict[str, Any]) -> tuple[str, ...]:
+        texts: list[str] = []
+        for step in payload.get("steps", []):
+            if not isinstance(step, dict) or step.get("type") != "model_output":
+                continue
+            for item in step.get("content", []):
+                if isinstance(item, dict) and isinstance(item.get("text"), str):
+                    texts.append(item["text"])
+        if texts:
+            return tuple(texts)
+        try:
+            parts = payload["candidates"][0]["content"]["parts"]
+            return tuple(part["text"] for part in parts if "text" in part)
+        except (KeyError, IndexError, TypeError):
+            return ()
+
+    @staticmethod
+    def _gemini_safe_schema(schema: dict[str, Any]) -> dict[str, Any]:
+        definitions = schema.get("$defs", {})
+
+        def sanitize(node: Any) -> Any:
+            if not isinstance(node, dict):
+                return node
+            if "$ref" in node:
+                ref = str(node["$ref"])
+                prefix = "#/$defs/"
+                if ref.startswith(prefix) and isinstance(definitions, dict):
+                    target = definitions.get(ref.removeprefix(prefix), {})
+                    return sanitize(target)
+            cleaned: dict[str, Any] = {}
+            for key, value in node.items():
+                if key in {
+                    "$defs",
+                    "$ref",
+                    "title",
+                    "description",
+                    "pattern",
+                    "format",
+                    "minLength",
+                    "maxLength",
+                    "minItems",
+                    "maxItems",
+                    "minimum",
+                    "maximum",
+                    "exclusiveMinimum",
+                    "exclusiveMaximum",
+                    "additionalProperties",
+                }:
+                    continue
+                if key == "properties" and isinstance(value, dict):
+                    cleaned[key] = {
+                        str(prop_name): sanitize(prop_schema)
+                        for prop_name, prop_schema in value.items()
+                    }
+                    continue
+                if key == "items":
+                    cleaned[key] = sanitize(value)
+                    continue
+                if key == "anyOf" and isinstance(value, list):
+                    types = [
+                        item.get("type")
+                        for item in value
+                        if isinstance(item, dict) and isinstance(item.get("type"), str)
+                    ]
+                    if len(types) == len(value):
+                        cleaned["type"] = types
+                        continue
+                cleaned[key] = sanitize(value)
+            return cleaned
+
+        sanitized = sanitize(schema)
+        if not isinstance(sanitized, dict):
+            raise ValueError("GEMINI_SCHEMA_INVALID")
+        return sanitized

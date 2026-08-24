@@ -2,12 +2,68 @@ import hashlib
 import json
 from datetime import UTC, datetime
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.api.analysis_runs import service
 from app.api.post_match import service as post_match_service
-from app.infrastructure.mock_fixture_provider import FIXTURES
+from app.application.analysis_runs import AnalysisRunService
+from app.domain.fixtures import CanonicalFixture
+from app.infrastructure.mock_fixture_provider import FIXTURES, MockFixtureProvider
 from app.main import app
+
+
+class _BrokenDeepEvidenceProvider:
+    @property
+    def available(self) -> bool:
+        return True
+
+    async def collect(self, fixture: CanonicalFixture) -> None:
+        raise RuntimeError("provider temporary failure")
+
+
+class _BrokenFeatureFixtureProvider(MockFixtureProvider):
+    async def features_for(self, fixture: CanonicalFixture):  # type: ignore[no-untyped-def]
+        raise RuntimeError("feature provider temporary failure")
+
+
+@pytest.mark.asyncio
+async def test_analysis_continues_when_deep_evidence_provider_fails() -> None:
+    run_service = AnalysisRunService(
+        clock=lambda: datetime(2026, 8, 24, 12, tzinfo=UTC),
+        fixture_provider=MockFixtureProvider(),
+        deep_evidence_provider=_BrokenDeepEvidenceProvider(),
+    )
+
+    run = await run_service.start(
+        FIXTURES[2].id,
+        "deep-evidence-soft-fail",
+        "request-hash",
+        FIXTURES[2].id,
+    )
+
+    assert run.fixture_id == FIXTURES[2].id
+    assert run.forecast.analysis_provider == "mock"
+    assert run.state == "LOCKING"
+
+
+@pytest.mark.asyncio
+async def test_analysis_continues_when_fixture_feature_enrichment_fails() -> None:
+    run_service = AnalysisRunService(
+        clock=lambda: datetime(2026, 8, 24, 12, tzinfo=UTC),
+        fixture_provider=_BrokenFeatureFixtureProvider(),
+    )
+
+    run = await run_service.start(
+        FIXTURES[2].id,
+        "feature-enrichment-soft-fail",
+        "request-hash",
+        FIXTURES[2].id,
+    )
+
+    assert run.fixture_id == FIXTURES[2].id
+    assert run.forecast.analysis_provider == "mock"
+    assert run.state == "LOCKING"
 
 
 def test_full_mock_analysis_chief_probability_and_immutable_replay() -> None:

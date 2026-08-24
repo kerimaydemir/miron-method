@@ -107,11 +107,11 @@ async def test_three_gemini_models_fill_all_deep_stages_with_valid_costs() -> No
         "gemini-3.6-flash",
         "gemini-3.5-flash",
     }
-    assert len(client.model_ids) == 8
+    assert len(client.model_ids) == 11
     assert result.forecast.analysis_provider == "google_gemini"
     assert len(result.forecast.market_probabilities) == 2
     assert result.forecast.market_probabilities[0].market_key == "totals"
-    assert len(result.forecast.model_ids) == 8
+    assert len(result.forecast.model_ids) == 11
     assert sum(item.probability for item in result.forecast.outcome_probabilities) == Decimal("1")
     assert result.actual_cost_usd > 0
     assert result.actual_cost_usd <= Decimal("2")

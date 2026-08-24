@@ -9,34 +9,37 @@ from app.infrastructure.gemini_client import GeminiClient, GeminiJsonRequest
 @pytest.mark.asyncio
 async def test_gemini_client_uses_only_selected_gemini_model_and_structured_output() -> None:
     async def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path.endswith("/models/gemini-3.7-flash:generateContent")
+        assert request.url.path.endswith("/interactions")
         assert request.headers["x-goog-api-key"] == "test-key"
         body = json.loads(request.content)
-        assert body["generationConfig"]["responseMimeType"] == "application/json"
-        assert body["tools"] == [{"googleSearch": {}}]
+        assert body["model"] == "gemini-3.7-flash"
+        assert body["response_format"]["mime_type"] == "application/json"
+        assert body["store"] is False
+        assert body["tools"] == [{"type": "google_search"}]
         return httpx.Response(
             200,
             headers={"x-request-id": "gemini-request-1"},
             json={
-                "candidates": [
+                "steps": [
                     {
-                        "content": {"parts": [{"text": '{"verdict":"ok"}'}]},
-                        "groundingMetadata": {
-                            "groundingChunks": [
-                                {
-                                    "web": {
-                                        "uri": "https://club.example/team-news",
-                                        "title": "Official team news",
-                                    }
-                                }
-                            ]
-                        },
+                        "type": "model_output",
+                        "content": [{"type": "text", "text": '{"verdict":"ok"}'}],
                     }
                 ],
-                "usageMetadata": {
-                    "promptTokenCount": 12,
-                    "candidatesTokenCount": 5,
-                    "thoughtsTokenCount": 3,
+                "grounding_metadata": {
+                    "grounding_chunks": [
+                        {
+                            "web": {
+                                "uri": "https://club.example/team-news",
+                                "title": "Official team news",
+                            }
+                        }
+                    ]
+                },
+                "usage": {
+                    "total_input_tokens": 12,
+                    "total_output_tokens": 5,
+                    "total_thought_tokens": 3,
                 },
             },
         )
@@ -94,7 +97,14 @@ async def test_gemini_client_honors_zero_retry_after_before_success() -> None:
             return httpx.Response(429, headers={"Retry-After": "0"}, json={"error": {}})
         return httpx.Response(
             200,
-            json={"candidates": [{"content": {"parts": [{"text": '{"ok":true}'}]}}]},
+            json={
+                "steps": [
+                    {
+                        "type": "model_output",
+                        "content": [{"type": "text", "text": '{"ok":true}'}],
+                    }
+                ]
+            },
         )
 
     client = GeminiClient("test-key", transport=httpx.MockTransport(handler))
