@@ -32,119 +32,122 @@ async def test_provider_filters_top_league_and_normalizes_richer_markets() -> No
                     }
                 ],
             )
-        assert request.url.path.endswith("/odds")
+        assert request.url.path.endswith("/odds/multi")
         assert request.url.params["bookmakers"] == "Bet365,Unibet"
+        assert request.url.params["eventIds"] == "72221172"
         return httpx.Response(
             200,
-            json={
-                "id": 72221172,
-                "home": "Fulham FC",
-                "away": "Chelsea FC",
-                "date": "2026-08-25T19:00:00Z",
-                "status": "pending",
-                "sport": {"name": "Football", "slug": "football"},
-                "league": {
-                    "name": "England - Premier League",
-                    "slug": "england-premier-league",
-                },
-                "scores": {"home": 0, "away": 0},
-                "bookmakers": {
-                    "Bet365": [
-                        {
-                            "name": "ML",
-                            "updatedAt": "2026-08-23T23:04:00.251Z",
-                            "odds": [{"home": "3.900", "draw": "4.000", "away": "1.833"}],
-                        },
-                        {
-                            "name": "Draw No Bet",
-                            "updatedAt": "2026-08-23T21:11:47.591Z",
-                            "odds": [{"home": "3.000", "away": "1.363"}],
-                        },
-                        {
-                            "name": "Double Chance",
-                            "updatedAt": "2026-08-23T21:20:47.591Z",
-                            "odds": [{"1X": "2.050", "12": "1.220", "X2": "1.280"}],
-                        },
-                        {
-                            "name": "Spread",
-                            "updatedAt": "2026-08-23T21:21:47.591Z",
-                            "odds": [{"hdp": -0.5, "home": "3.900", "away": "1.260"}],
-                        },
-                        {
-                            "name": "Totals",
-                            "updatedAt": "2026-08-23T22:51:31.254Z",
-                            "odds": [{"hdp": 2.5, "over": "1.650", "under": "2.200"}],
-                        },
-                        {
-                            "name": "Both Teams To Score",
-                            "updatedAt": "2026-08-23T23:04:00.251Z",
-                            "odds": [{"yes": "1.615", "no": "2.200"}],
-                        },
-                        {
-                            "name": "Odd/Even",
-                            "updatedAt": "2026-08-23T23:04:30.251Z",
-                            "odds": [{"odd": "1.950", "even": "1.950"}],
-                        },
-                        {
-                            "name": "ML HT",
-                            "updatedAt": "2026-08-23T23:05:00.251Z",
-                            "odds": [{"home": "4.600", "draw": "2.250", "away": "2.050"}],
-                        },
-                        {
-                            "name": "Totals HT",
-                            "updatedAt": "2026-08-23T23:05:30.251Z",
-                            "odds": [{"hdp": 1.5, "over": "2.200", "under": "1.650"}],
-                        },
-                    ],
-                    "Unibet": [
-                        {
-                            "name": "ML",
-                            "updatedAt": "2026-08-23T23:05:00.251Z",
-                            "odds": [{"home": "3.700", "draw": "4.100", "away": "1.900"}],
-                        },
-                        {
-                            "name": "Draw No Bet",
-                            "updatedAt": "2026-08-23T21:12:47.591Z",
-                            "odds": [{"home": "2.900", "away": "1.400"}],
-                        },
-                        {
-                            "name": "Double Chance",
-                            "updatedAt": "2026-08-23T21:22:47.591Z",
-                            "odds": [{"1X": "2.000", "12": "1.250", "X2": "1.300"}],
-                        },
-                        {
-                            "name": "Asian Handicap",
-                            "updatedAt": "2026-08-23T21:23:47.591Z",
-                            "odds": [{"hdp": -0.5, "home": "3.800", "away": "1.280"}],
-                        },
-                        {
-                            "name": "Goals Over/Under",
-                            "updatedAt": "2026-08-23T22:52:31.254Z",
-                            "odds": [{"hdp": 2.5, "over": "1.700", "under": "2.100"}],
-                        },
-                        {
-                            "name": "Both Teams To Score",
-                            "updatedAt": "2026-08-23T23:05:00.251Z",
-                            "odds": [{"yes": "1.650", "no": "2.100"}],
-                        },
-                        {
-                            "name": "Odd Even",
-                            "updatedAt": "2026-08-23T23:05:30.251Z",
-                            "odds": [{"odd": "1.900", "even": "2.000"}],
-                        },
-                        {
-                            "name": "1st Half Moneyline",
-                            "updatedAt": "2026-08-23T23:06:00.251Z",
-                            "odds": [{"home": "4.500", "draw": "2.300", "away": "2.000"}],
-                        },
-                        {
-                            "name": "1st Half Goals Over/Under",
-                            "updatedAt": "2026-08-23T23:06:30.251Z",
-                            "odds": [{"hdp": 1.5, "over": "2.300", "under": "1.600"}],
-                        },
-                    ],
-                },
-            },
+            json=[
+                {
+                    "id": 72221172,
+                    "home": "Fulham FC",
+                    "away": "Chelsea FC",
+                    "date": "2026-08-25T19:00:00Z",
+                    "status": "pending",
+                    "sport": {"name": "Football", "slug": "football"},
+                    "league": {
+                        "name": "England - Premier League",
+                        "slug": "england-premier-league",
+                    },
+                    "scores": {"home": 0, "away": 0},
+                    "bookmakers": {
+                        "Bet365": [
+                            {
+                                "name": "ML",
+                                "updatedAt": "2026-08-23T23:04:00.251Z",
+                                "odds": [{"home": "3.900", "draw": "4.000", "away": "1.833"}],
+                            },
+                            {
+                                "name": "Draw No Bet",
+                                "updatedAt": "2026-08-23T21:11:47.591Z",
+                                "odds": [{"home": "3.000", "away": "1.363"}],
+                            },
+                            {
+                                "name": "Double Chance",
+                                "updatedAt": "2026-08-23T21:20:47.591Z",
+                                "odds": [{"1X": "2.050", "12": "1.220", "X2": "1.280"}],
+                            },
+                            {
+                                "name": "Spread",
+                                "updatedAt": "2026-08-23T21:21:47.591Z",
+                                "odds": [{"hdp": -0.5, "home": "3.900", "away": "1.260"}],
+                            },
+                            {
+                                "name": "Totals",
+                                "updatedAt": "2026-08-23T22:51:31.254Z",
+                                "odds": [{"hdp": 2.5, "over": "1.650", "under": "2.200"}],
+                            },
+                            {
+                                "name": "Both Teams To Score",
+                                "updatedAt": "2026-08-23T23:04:00.251Z",
+                                "odds": [{"yes": "1.615", "no": "2.200"}],
+                            },
+                            {
+                                "name": "Odd/Even",
+                                "updatedAt": "2026-08-23T23:04:30.251Z",
+                                "odds": [{"odd": "1.950", "even": "1.950"}],
+                            },
+                            {
+                                "name": "ML HT",
+                                "updatedAt": "2026-08-23T23:05:00.251Z",
+                                "odds": [{"home": "4.600", "draw": "2.250", "away": "2.050"}],
+                            },
+                            {
+                                "name": "Totals HT",
+                                "updatedAt": "2026-08-23T23:05:30.251Z",
+                                "odds": [{"hdp": 1.5, "over": "2.200", "under": "1.650"}],
+                            },
+                        ],
+                        "Unibet": [
+                            {
+                                "name": "ML",
+                                "updatedAt": "2026-08-23T23:05:00.251Z",
+                                "odds": [{"home": "3.700", "draw": "4.100", "away": "1.900"}],
+                            },
+                            {
+                                "name": "Draw No Bet",
+                                "updatedAt": "2026-08-23T21:12:47.591Z",
+                                "odds": [{"home": "2.900", "away": "1.400"}],
+                            },
+                            {
+                                "name": "Double Chance",
+                                "updatedAt": "2026-08-23T21:22:47.591Z",
+                                "odds": [{"1X": "2.000", "12": "1.250", "X2": "1.300"}],
+                            },
+                            {
+                                "name": "Asian Handicap",
+                                "updatedAt": "2026-08-23T21:23:47.591Z",
+                                "odds": [{"hdp": -0.5, "home": "3.800", "away": "1.280"}],
+                            },
+                            {
+                                "name": "Goals Over/Under",
+                                "updatedAt": "2026-08-23T22:52:31.254Z",
+                                "odds": [{"hdp": 2.5, "over": "1.700", "under": "2.100"}],
+                            },
+                            {
+                                "name": "Both Teams To Score",
+                                "updatedAt": "2026-08-23T23:05:00.251Z",
+                                "odds": [{"yes": "1.650", "no": "2.100"}],
+                            },
+                            {
+                                "name": "Odd Even",
+                                "updatedAt": "2026-08-23T23:05:30.251Z",
+                                "odds": [{"odd": "1.900", "even": "2.000"}],
+                            },
+                            {
+                                "name": "1st Half Moneyline",
+                                "updatedAt": "2026-08-23T23:06:00.251Z",
+                                "odds": [{"home": "4.500", "draw": "2.300", "away": "2.000"}],
+                            },
+                            {
+                                "name": "1st Half Goals Over/Under",
+                                "updatedAt": "2026-08-23T23:06:30.251Z",
+                                "odds": [{"hdp": 1.5, "over": "2.300", "under": "1.600"}],
+                            },
+                        ],
+                    },
+                }
+            ],
         )
 
     client = httpx.AsyncClient(

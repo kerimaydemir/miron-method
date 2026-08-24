@@ -114,17 +114,30 @@ class OddsApiIoProvider:
             event_ids: dict[UUID, str] = {}
             league_slugs: dict[UUID, str] = {}
             success_count = 0
+            events: list[_OddsApiIoEvent] = []
             for league in TOP_LEAGUES:
                 try:
                     response = await self._fetch_league_events(ODDS_API_IO_LEAGUE_SLUGS[league.key])
                 except (RuntimeError, ValueError):
                     continue
                 success_count += 1
-                for event in response:
-                    try:
-                        odds_payload = await self._fetch_event_odds(event.id)
-                    except (RuntimeError, ValueError):
-                        continue
+                events.extend(response)
+            for chunk_start in range(0, len(events), 10):
+                event_chunk = events[chunk_start : chunk_start + 10]
+                try:
+                    odds_payloads = await self._fetch_multi_event_odds(
+                        tuple(event.id for event in event_chunk)
+                    )
+                except (RuntimeError, ValueError):
+                    odds_payloads = tuple()
+                payload_by_id = {str(item.get("id")): item for item in odds_payloads}
+                for event in event_chunk:
+                    odds_payload = payload_by_id.get(str(event.id))
+                    if odds_payload is None:
+                        try:
+                            odds_payload = await self._fetch_event_odds(event.id)
+                        except (RuntimeError, ValueError):
+                            continue
                     normalized = self._normalize_event(odds_payload, now)
                     if normalized is None:
                         continue
@@ -295,6 +308,23 @@ class OddsApiIoProvider:
         if not isinstance(payload, dict):
             raise ValueError("ODDS_API_IO_INVALID_RESPONSE")
         return payload
+
+    async def _fetch_multi_event_odds(
+        self, event_ids: tuple[int | str, ...]
+    ) -> tuple[Mapping[str, object], ...]:
+        if not event_ids:
+            return ()
+        payload = await self._get_json(
+            "/odds/multi",
+            params={
+                "apiKey": self._api_key,
+                "eventIds": ",".join(str(event_id) for event_id in event_ids[:10]),
+                "bookmakers": self._bookmakers,
+            },
+        )
+        if not isinstance(payload, list):
+            raise ValueError("ODDS_API_IO_INVALID_RESPONSE")
+        return tuple(item for item in payload if isinstance(item, dict))
 
     async def _get_json(self, endpoint: str, params: Mapping[str, str | int]) -> object:
         for attempt in range(3):
