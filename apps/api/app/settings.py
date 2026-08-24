@@ -47,6 +47,7 @@ class Settings(BaseSettings):
     OPEN_METEO_GEOCODING_BASE_URL: str = "https://geocoding-api.open-meteo.com/v1"
     THESPORTSDB_API_KEY: SecretStr = SecretStr("123")
     THESPORTSDB_BASE_URL: str = "https://www.thesportsdb.com/api/v1/json"
+    THESPORTSDB_ENABLED: bool = False
     SCOREBAT_API_KEY: SecretStr = SecretStr("")
     SCOREBAT_BASE_URL: str = "https://www.scorebat.com/video-api/v3"
     THE_ODDS_API_KEY: SecretStr = SecretStr("")
@@ -110,6 +111,14 @@ class Settings(BaseSettings):
     @property
     def sportmonks_enabled(self) -> bool:
         return bool(self.SPORTMONKS_API_KEY.get_secret_value())
+
+    @property
+    def thesportsdb_enabled(self) -> bool:
+        return bool(
+            self.THESPORTSDB_ENABLED
+            and self.THESPORTSDB_API_KEY.get_secret_value()
+            and self.THESPORTSDB_BASE_URL
+        )
 
     @property
     def api_football_current_odds_enabled(self) -> bool:

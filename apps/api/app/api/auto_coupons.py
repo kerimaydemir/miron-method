@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import secrets
 from datetime import datetime
@@ -27,7 +28,15 @@ async def create_auto_coupon(
     idempotency_key: str = Header(min_length=8, max_length=128, alias="Idempotency-Key"),
 ) -> AutoCouponRun:
     try:
-        return await auto_coupon_service.create(idempotency_key=idempotency_key)
+        return await asyncio.wait_for(
+            auto_coupon_service.create(idempotency_key=idempotency_key),
+            timeout=180,
+        )
+    except TimeoutError as error:
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "AUTO_COUPON_TIMED_OUT"},
+        ) from error
     except KeyError as error:
         raise HTTPException(status_code=404, detail={"code": str(error.args[0])}) from error
     except ValueError as error:

@@ -58,6 +58,21 @@ class FakeGeminiClient:
                 "decisive_evidence": ["Kapsama sinyali yüksek", "Güncellik sinyali güçlü"],
                 "uncertainty_drivers": ["Kadro verisi yok", "Takımlar pilot veridir"],
                 "dissent_summary": ["Beraberlik senaryosu göz ardı edilmemeli"],
+                "market_probabilities": [
+                    {
+                        "market_key": "totals",
+                        "outcome_key": "over",
+                        "probability": 0.64,
+                        "line": 2.5,
+                        "rationale": "xG toplamı ve maç akışı 2.5 üst senaryosunu destekliyor.",
+                    },
+                    {
+                        "market_key": "btts",
+                        "outcome_key": "yes",
+                        "probability": 0.57,
+                        "rationale": "İki takımın gol üretim kanalları dengeli görünüyor.",
+                    },
+                ],
             }
         return GeminiJsonResult(
             model_id=request.model_id,
@@ -94,6 +109,8 @@ async def test_three_gemini_models_fill_all_deep_stages_with_valid_costs() -> No
     }
     assert len(client.model_ids) == 8
     assert result.forecast.analysis_provider == "google_gemini"
+    assert len(result.forecast.market_probabilities) == 2
+    assert result.forecast.market_probabilities[0].market_key == "totals"
     assert len(result.forecast.model_ids) == 8
     assert sum(item.probability for item in result.forecast.outcome_probabilities) == Decimal("1")
     assert result.actual_cost_usd > 0

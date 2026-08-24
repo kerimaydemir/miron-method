@@ -26,8 +26,8 @@ sources:
     role: candidate_deep_football_evidence
     credential: SPORTMONKS_API_KEY
     required_for_auto_coupon: false
-    runtime_status: token_stored_adapter_not_yet_wired
-    access_note: Dashboard token created; direct football endpoint verification was inconclusive in local network.
+    runtime_status: wired_adapter_composite_merge
+    access_note: Optional deep provider; composite evidence now keeps usable Sportmonks artifacts instead of stopping at the first source.
     endpoints:
       - /leagues
       - /fixtures/between/{start_date}/{end_date}
@@ -66,8 +66,16 @@ sources:
     markets:
       - h2h
       - draw_no_bet
+      - double_chance
       - btts
       - totals
+      - spread
+      - odd_even
+      - first_half_h2h
+      - first_half_totals
+      - team_totals
+      - corners_spread
+      - cards_spread
   google_gemini_search:
     role: current_official_news_and_cross_check
     credential: GEMINI_API_KEY
@@ -88,7 +96,15 @@ sources:
     role: optional_public_team_event_metadata
     credential: THESPORTSDB_API_KEY
     required_for_auto_coupon: false
-    runtime_status: candidate_not_yet_wired
+    runtime_status: wired_optional_metadata_provider
+    endpoints:
+      - /searchteams.php
+      - /eventsnext.php
+      - /eventslast.php
+      - /lookupevent.php
+      - /lookuplineup.php
+      - /lookuptimeline.php
+      - /lookupeventstats.php
   scorebat:
     role: optional_highlight_video_context
     credential: SCOREBAT_API_KEY

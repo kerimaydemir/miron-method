@@ -59,6 +59,17 @@ class OutcomeProbability(BaseModel):
     upper: Decimal = Field(ge=0, le=1)
 
 
+class MarketProbability(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    market_key: str
+    outcome_key: str
+    probability: Decimal = Field(ge=0, le=1)
+    line: Decimal | None = None
+    description: str | None = None
+    rationale: str = Field(min_length=8, max_length=500)
+
+
 class FinalForecast(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
     schema_version: Literal["final-forecast.v1"] = "final-forecast.v1"
@@ -67,6 +78,7 @@ class FinalForecast(BaseModel):
     outcome_probabilities: tuple[OutcomeProbability, OutcomeProbability, OutcomeProbability]
     expected_home_goals: Decimal
     expected_away_goals: Decimal
+    market_probabilities: tuple[MarketProbability, ...] = ()
     calibration_status: Literal["provisional"] = "provisional"
     confidence: Decimal = Field(ge=0, le=1)
     uncertainty_drivers: tuple[str, ...]

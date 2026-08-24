@@ -194,6 +194,8 @@ services:
       API_FOOTBALL_API_KEY: ""
       API_FOOTBALL_CURRENT_ODDS_ENABLED: "false"
       SPORTMONKS_API_KEY: ""
+      THESPORTSDB_API_KEY: ""
+      THESPORTSDB_ENABLED: "false"
       RAPIDAPI_KEY: ""
       FOOTBALL_DATA_API_KEY: ""
     volumes:

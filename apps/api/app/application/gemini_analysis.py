@@ -9,7 +9,7 @@ from typing import Protocol
 import httpx
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.domain.analysis import FinalForecast, OutcomeProbability
+from app.domain.analysis import FinalForecast, MarketProbability, OutcomeProbability
 from app.domain.deep_evidence import DeepFootballEvidence
 from app.domain.fixtures import CanonicalFixture, TriageFactors
 from app.domain.registries import ModelRegistry, ModelRoute, ProviderRegistry
@@ -80,6 +80,22 @@ class ResearchOutput(BaseModel):
     citations: list[str] = Field(default_factory=list, max_length=16)
 
 
+class MarketProbabilityOutput(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    market_key: str = Field(
+        pattern=(
+            r"^(h2h|draw_no_bet|double_chance|btts|totals|spread|odd_even|"
+            r"first_half_h2h|first_half_totals|team_totals)$"
+        )
+    )
+    outcome_key: str = Field(pattern=r"^(home|draw|away|over|under|yes|no|1x|12|x2|odd|even)$")
+    probability: float = Field(ge=0, le=1)
+    line: float | None = None
+    description: str | None = Field(default=None, max_length=120)
+    rationale: str = Field(min_length=8, max_length=500)
+
+
 class SynthesisOutput(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -93,6 +109,7 @@ class SynthesisOutput(BaseModel):
     decisive_evidence: list[str] = Field(min_length=2, max_length=4)
     uncertainty_drivers: list[str] = Field(min_length=2, max_length=4)
     dissent_summary: list[str] = Field(min_length=1, max_length=3)
+    market_probabilities: list[MarketProbabilityOutput] = Field(default_factory=list, max_length=16)
 
 
 class FinalCriticOutput(BaseModel):
@@ -232,6 +249,8 @@ class GeminiAnalysisService:
                     role=(
                         "Senaryo kurulu. Ev, beraberlik ve deplasman için en güçlü gerçekçi "
                         "vakayı kur; üçünü red-team et ve birbirini dışlayan maç akışları üret. "
+                        "Toplam gol, KG var/yok, handikap ve ilk yarı pazarlarını etkileyen "
+                        "akış tetikleyicilerini ayrıca ayır. "
                         "Bu aşamada nihai olasılık verme"
                     ),
                     packet=self._json_packet(
@@ -336,6 +355,7 @@ class GeminiAnalysisService:
             expected_away_goals=self._bounded_decimal(
                 revision.expected_away_goals, Decimal("0"), Decimal("8")
             ),
+            market_probabilities=self._market_probabilities(revision),
             confidence=confidence,
             uncertainty_drivers=tuple(revision.uncertainty_drivers),
             decisive_evidence=tuple(revision.decisive_evidence),
@@ -501,7 +521,11 @@ class GeminiAnalysisService:
             model_id=route.model_id,
             system_instruction=(
                 "Sen S27 Chief Analyst rolündesin. İlk kez nihai ev/beraberlik/deplasman "
-                "olasılıklarını üret. Üçü toplam 1 olmalı. Eksik veride güveni düşür; kesinlik "
+                "olasılıklarını üret. Üçü toplam 1 olmalı. Ayrıca yalnız kanıt zinciri "
+                "destekliyorsa totals, BTTS, spread, double chance, odd/even ve ilk yarı "
+                "pazarları için market_probabilities alanını doldur. Oranı veya bookmaker "
+                "olasılığını kopyalama; her market olasılığı maç akışı, xG, kadro, taktik ve "
+                "belirsizlik gerekçesine bağlı olmalı. Eksik veride güveni düşür; kesinlik "
                 "veya bahis tavsiyesi verme. Türkçe yaz."
             ),
             prompt=f"Denetlenmiş kanıt zincirinden ilk nihai tahmini üret:\n{packet}",
@@ -548,7 +572,8 @@ class GeminiAnalysisService:
             model_id=route.model_id,
             system_instruction=(
                 "Sen S29 Chief Revision rolündesin. Final Critic'i değerlendir ve en fazla bir "
-                "temkinli revizyon yap. Kanıt ekleme veya uydurma. Olasılıklar toplamı 1 olmalı. "
+                "temkinli revizyon yap. Market bazlı olasılıkları da koru veya gerekçeli şekilde "
+                "temkinli düzelt. Kanıt ekleme veya uydurma. Olasılıklar toplamı 1 olmalı. "
                 "Türkçe yaz."
             ),
             prompt=f"Tahmini bir kez revize et veya gerekçeli biçimde koru:\n{packet}",
@@ -617,3 +642,32 @@ class GeminiAnalysisService:
     def _bounded_decimal(value: float, lower: Decimal, upper: Decimal) -> Decimal:
         decimal_value = Decimal(str(value)).quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
         return min(upper, max(lower, decimal_value))
+
+    @staticmethod
+    def _market_probabilities(synthesis: SynthesisOutput) -> tuple[MarketProbability, ...]:
+        result: list[MarketProbability] = []
+        seen: set[tuple[str, str, Decimal | None, str | None]] = set()
+        for item in synthesis.market_probabilities:
+            line = (
+                Decimal(str(item.line)).quantize(Decimal("0.001"), rounding=ROUND_HALF_UP)
+                if item.line is not None
+                else None
+            )
+            probability = Decimal(str(item.probability)).quantize(
+                Decimal("0.000001"), rounding=ROUND_HALF_UP
+            )
+            key = (item.market_key, item.outcome_key, line, item.description)
+            if key in seen:
+                continue
+            seen.add(key)
+            result.append(
+                MarketProbability(
+                    market_key=item.market_key,
+                    outcome_key=item.outcome_key,
+                    probability=probability,
+                    line=line,
+                    description=item.description,
+                    rationale=item.rationale,
+                )
+            )
+        return tuple(result)

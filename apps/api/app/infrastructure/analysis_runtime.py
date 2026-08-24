@@ -12,6 +12,7 @@ from app.infrastructure.fixture_runtime import analysis_fixture_provider, rapida
 from app.infrastructure.lock_object_store import S3LockObjectStore
 from app.infrastructure.open_meteo_provider import OpenMeteoProvider
 from app.infrastructure.sportmonks_provider import SportmonksProvider
+from app.infrastructure.thesportsdb_provider import TheSportsDbProvider
 from app.settings import get_settings
 
 settings = get_settings()
@@ -63,6 +64,13 @@ if settings.api_football_enabled:
             ),
         )
     )
+if settings.thesportsdb_enabled:
+    configured_deep_evidence_providers.append(
+        TheSportsDbProvider(
+            api_key=settings.THESPORTSDB_API_KEY.get_secret_value(),
+            base_url=settings.THESPORTSDB_BASE_URL,
+        )
+    )
 if rapidapi_provider is not None:
     configured_deep_evidence_providers.append(rapidapi_provider)
 
@@ -84,7 +92,10 @@ analysis_service = AnalysisRunService(
 
 
 async def stop_analysis_runtime() -> None:
-    if isinstance(deep_evidence_provider, (ApiFootballProvider, SportmonksProvider)):
+    if isinstance(
+        deep_evidence_provider,
+        (ApiFootballProvider, SportmonksProvider, TheSportsDbProvider),
+    ):
         await deep_evidence_provider.close()
     if isinstance(deep_evidence_provider, CompositeDeepEvidenceProvider):
         await deep_evidence_provider.close()

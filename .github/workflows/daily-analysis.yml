@@ -124,6 +124,7 @@ jobs:
           OPEN_METEO_GEOCODING_BASE_URL=https://geocoding-api.open-meteo.com/v1
           THESPORTSDB_API_KEY=123
           THESPORTSDB_BASE_URL=https://www.thesportsdb.com/api/v1/json
+          THESPORTSDB_ENABLED=true
           SCOREBAT_API_KEY=
           SCOREBAT_BASE_URL=https://www.scorebat.com/video-api/v3
           EOF

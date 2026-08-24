@@ -198,11 +198,15 @@ class AutoCouponService:
         by_id = {item.fixture.id: item for item in initial}
         selections: list[CouponSelection] = []
         analysis_cost = Decimal("0")
+        finalist_analysis_timed_out = False
         for fixture_id in critic.selected_fixture_ids:
             candidate = by_id[fixture_id]
             try:
                 market = await asyncio.wait_for(self._odds.wide_market_for(fixture_id), timeout=45)
-            except (TimeoutError, KeyError, httpx.HTTPError, RuntimeError, ValueError):
+            except TimeoutError:
+                finalist_analysis_timed_out = True
+                break
+            except (KeyError, httpx.HTTPError, RuntimeError, ValueError):
                 continue
             analysis_key = f"auto-{run_id.hex[:16]}-{fixture_id.hex[:16]}"
             try:
@@ -218,14 +222,10 @@ class AutoCouponService:
                 locked = await asyncio.wait_for(
                     self._analysis.lock(analysis_run.run_id), timeout=10
                 )
-            except (
-                TimeoutError,
-                PermissionError,
-                RuntimeError,
-                ValueError,
-                KeyError,
-                httpx.HTTPError,
-            ):
+            except TimeoutError:
+                finalist_analysis_timed_out = True
+                break
+            except (PermissionError, RuntimeError, ValueError, KeyError, httpx.HTTPError):
                 continue
             if locked.lock_id is None:
                 raise RuntimeError("AUTO_COUPON_LOCK_REQUIRED")
@@ -320,6 +320,9 @@ class AutoCouponService:
                 "Bugün canlı bookmaker oranı alınamadı; sistem oran uydurmadı, sadece "
                 "büyük lig fixture jurnalini kaydetti."
                 if source_mode == "fixture_live_no_odds"
+                else "Derin finalist analizi süre sınırına takıldı; günlük jurnal kaydedildi, "
+                "kota doldurmak için kör kupon üretilmedi."
+                if finalist_analysis_timed_out and not ordered
                 else "Bugün kanıt, fiyat ve belirsizlik eşiklerini birlikte geçen seçim yok; "
                 "sistem kota doldurmak için kupon üretmedi."
                 if not ordered
@@ -1121,6 +1124,9 @@ class AutoCouponService:
     def _model_market_probability(
         forecast: FinalForecast, fixture: CanonicalFixture, quote: MarketQuote
     ) -> Decimal | None:
+        direct_probability = AutoCouponService._forecast_market_probability(forecast, quote)
+        if direct_probability is not None:
+            return direct_probability
         outcomes = {item.outcome: item.probability for item in forecast.outcome_probabilities}
         home_xg = max(Decimal(".01"), forecast.expected_home_goals)
         away_xg = max(Decimal(".01"), forecast.expected_away_goals)
@@ -1182,6 +1188,32 @@ class AutoCouponService:
                 intensity, quote.point, quote.outcome_key
             )
         return None
+
+    @staticmethod
+    def _forecast_market_probability(forecast: FinalForecast, quote: MarketQuote) -> Decimal | None:
+        candidates = [
+            item
+            for item in forecast.market_probabilities
+            if item.market_key == quote.market_key and item.outcome_key == quote.outcome_key
+        ]
+        if quote.point is not None:
+            candidates = [
+                item
+                for item in candidates
+                if item.line is not None and abs(item.line - quote.point) <= Decimal(".05")
+            ]
+        if quote.description:
+            normalized_description = quote.description.casefold()
+            exact = [
+                item
+                for item in candidates
+                if item.description is not None
+                and item.description.casefold() == normalized_description
+            ]
+            candidates = exact or candidates
+        if not candidates:
+            return None
+        return max(item.probability for item in candidates)
 
     @staticmethod
     def _over_under_probability(
