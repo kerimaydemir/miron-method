@@ -5,7 +5,12 @@ from uuid import UUID
 
 from sqlalchemy import Engine, create_engine, text
 
-from app.domain.auto_coupon import AutoCouponPerformance, AutoCouponRun, MarketPerformance
+from app.domain.auto_coupon import (
+    AutoCouponPerformance,
+    AutoCouponRun,
+    CalibrationBand,
+    MarketPerformance,
+)
 from app.infrastructure.analysis_repository import canonical_json
 
 
@@ -502,6 +507,7 @@ def _performance_from_records(records: list[dict[str, object]]) -> AutoCouponPer
         if settled < 100
         else "meaningful"
     )
+    calibration = _calibration_from_records(records)
     return AutoCouponPerformance(
         settled=settled,
         wins=wins,
@@ -532,6 +538,7 @@ def _performance_from_records(records: list[dict[str, object]]) -> AutoCouponPer
         else None,
         process_verdicts=process,
         by_market=tuple(markets),
+        calibration=calibration,
         sample_size_status=sample_status,
         notice=(
             "En az 30 sonuçlanmış seçimden önce oranlar yalnız erken sinyaldir; sistem gerçek para yatırmaz."
@@ -539,3 +546,58 @@ def _performance_from_records(records: list[dict[str, object]]) -> AutoCouponPer
             else "Metrikler kilitli ön-maç tahminleri ve eşit birim simülasyonu üzerinden hesaplanır."
         ),
     )
+
+
+def _calibration_from_records(records: list[dict[str, object]]) -> tuple[CalibrationBand, ...]:
+    bands = (
+        ("0.50-0.60", Decimal(".50"), Decimal(".60")),
+        ("0.60-0.70", Decimal(".60"), Decimal(".70")),
+        ("0.70-0.80", Decimal(".70"), Decimal(".80")),
+        ("0.80-0.90", Decimal(".80"), Decimal(".90")),
+        ("0.90-1.00", Decimal(".90"), Decimal("1.00")),
+    )
+    decided = [item for item in records if item["settlement_status"] in ("won", "lost")]
+    result: list[CalibrationBand] = []
+    for label, lower, upper in bands:
+        group = [
+            item
+            for item in decided
+            if lower <= Decimal(str(item["probability"]))
+            and (Decimal(str(item["probability"])) < upper or upper == Decimal("1.00"))
+        ]
+        wins = sum(1 for item in group if item["settlement_status"] == "won")
+        losses = sum(1 for item in group if item["settlement_status"] == "lost")
+        settled = len(group)
+        average_probability = (
+            (
+                sum((Decimal(str(item["probability"])) for item in group), Decimal("0"))
+                / Decimal(settled)
+            ).quantize(Decimal(".0001"), rounding=ROUND_HALF_UP)
+            if settled
+            else None
+        )
+        hit_rate = (
+            (Decimal(wins) / Decimal(settled)).quantize(Decimal(".0001"), rounding=ROUND_HALF_UP)
+            if settled
+            else None
+        )
+        result.append(
+            CalibrationBand(
+                label=label,
+                lower=lower,
+                upper=upper,
+                settled=settled,
+                wins=wins,
+                losses=losses,
+                hit_rate=hit_rate,
+                average_predicted_probability=average_probability,
+                calibration_error=(
+                    abs(hit_rate - average_probability).quantize(
+                        Decimal(".0001"), rounding=ROUND_HALF_UP
+                    )
+                    if hit_rate is not None and average_probability is not None
+                    else None
+                ),
+            )
+        )
+    return tuple(result)

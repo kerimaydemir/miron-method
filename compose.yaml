@@ -190,8 +190,10 @@ services:
       LIVE_FIXTURES_ENABLED: "false"
       GEMINI_API_KEY: ""
       THE_ODDS_API_KEY: ""
+      ODDS_API_IO_KEY: ""
       API_FOOTBALL_API_KEY: ""
       API_FOOTBALL_CURRENT_ODDS_ENABLED: "false"
+      SPORTMONKS_API_KEY: ""
       RAPIDAPI_KEY: ""
       FOOTBALL_DATA_API_KEY: ""
     volumes:

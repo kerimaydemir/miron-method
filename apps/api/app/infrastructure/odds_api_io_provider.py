@@ -44,7 +44,19 @@ class _OddsApiIoEvent(BaseModel):
 
 class OddsApiIoProvider:
     source_name = "odds_api_io"
-    supported_market_keys: tuple[str, ...] = ("h2h", "draw_no_bet", "btts", "totals")
+    supported_market_keys: tuple[str, ...] = (
+        "h2h",
+        "draw_no_bet",
+        "double_chance",
+        "btts",
+        "totals",
+        "spread",
+        "odd_even",
+        "first_half_h2h",
+        "first_half_totals",
+        "corners_spread",
+        "cards_spread",
+    )
 
     def __init__(
         self,
@@ -71,6 +83,11 @@ class OddsApiIoProvider:
         self._event_ids: dict[UUID, str] = {}
         self._league_slugs: dict[UUID, str] = {}
         self._refresh_lock = asyncio.Lock()
+        self._request_lock = asyncio.Lock()
+        self._next_request_at = 0.0
+        self._request_interval = 0.0 if client is not None else 0.85
+        self._retry_base_seconds = 0.0 if client is not None else 2.0
+        self._retry_step_seconds = 0.0 if client is not None else 2.0
         self.observed_at: datetime | None = None
 
     @property
@@ -92,28 +109,21 @@ class OddsApiIoProvider:
                 and now - self.observed_at < self._refresh_interval
             ):
                 return
-            responses = await asyncio.gather(
-                *(
-                    self._fetch_league_events(ODDS_API_IO_LEAGUE_SLUGS[league.key])
-                    for league in TOP_LEAGUES
-                ),
-                return_exceptions=True,
-            )
             fixtures: dict[UUID, CanonicalFixture] = {}
             markets: dict[UUID, MarketOdds] = {}
             event_ids: dict[UUID, str] = {}
             league_slugs: dict[UUID, str] = {}
             success_count = 0
-            for response in responses:
-                if isinstance(response, BaseException):
+            for league in TOP_LEAGUES:
+                try:
+                    response = await self._fetch_league_events(ODDS_API_IO_LEAGUE_SLUGS[league.key])
+                except (RuntimeError, ValueError):
                     continue
                 success_count += 1
-                odds_responses = await asyncio.gather(
-                    *(self._fetch_event_odds(event.id) for event in response),
-                    return_exceptions=True,
-                )
-                for event, odds_payload in zip(response, odds_responses, strict=True):
-                    if isinstance(odds_payload, BaseException):
+                for event in response:
+                    try:
+                        odds_payload = await self._fetch_event_odds(event.id)
+                    except (RuntimeError, ValueError):
                         continue
                     normalized = self._normalize_event(odds_payload, now)
                     if normalized is None:
@@ -259,7 +269,7 @@ class OddsApiIoProvider:
         )
 
     async def _fetch_league_events(self, league_slug: str) -> tuple[_OddsApiIoEvent, ...]:
-        response = await self._client.get(
+        payload = await self._get_json(
             "/events",
             params={
                 "apiKey": self._api_key,
@@ -269,14 +279,12 @@ class OddsApiIoProvider:
                 "limit": self._events_per_league,
             },
         )
-        response.raise_for_status()
-        payload = response.json()
         if not isinstance(payload, list):
             raise ValueError("ODDS_API_IO_INVALID_RESPONSE")
         return tuple(_OddsApiIoEvent.model_validate(item) for item in payload)
 
     async def _fetch_event_odds(self, event_id: int | str) -> Mapping[str, object]:
-        response = await self._client.get(
+        payload = await self._get_json(
             "/odds",
             params={
                 "apiKey": self._api_key,
@@ -284,11 +292,35 @@ class OddsApiIoProvider:
                 "bookmakers": self._bookmakers,
             },
         )
-        response.raise_for_status()
-        payload = response.json()
         if not isinstance(payload, dict):
             raise ValueError("ODDS_API_IO_INVALID_RESPONSE")
         return payload
+
+    async def _get_json(self, endpoint: str, params: Mapping[str, str | int]) -> object:
+        for attempt in range(3):
+            async with self._request_lock:
+                loop = asyncio.get_running_loop()
+                wait_seconds = self._next_request_at - loop.time()
+                if wait_seconds > 0:
+                    await asyncio.sleep(wait_seconds)
+                self._next_request_at = loop.time() + self._request_interval
+                response = await self._client.get(endpoint, params=params)
+            if response.status_code == 429 and attempt < 2:
+                retry_after = self._decimal(response.headers.get("retry-after"))
+                default_retry = Decimal(
+                    str(self._retry_base_seconds + attempt * self._retry_step_seconds)
+                )
+                await asyncio.sleep(float(retry_after or default_retry))
+                continue
+            if response.status_code == 429:
+                raise RuntimeError("ODDS_API_IO_RATE_LIMITED")
+            if response.is_error:
+                raise RuntimeError(f"ODDS_API_IO_HTTP_{response.status_code}")
+            try:
+                return response.json()
+            except ValueError as error:
+                raise ValueError("ODDS_API_IO_INVALID_RESPONSE") from error
+        raise RuntimeError("ODDS_API_IO_RATE_LIMITED")
 
     @classmethod
     def _normalize_event(
@@ -301,7 +333,11 @@ class OddsApiIoProvider:
         if kickoff <= observed_at:
             return None
         league = next(
-            (item for item in TOP_LEAGUES if ODDS_API_IO_LEAGUE_SLUGS[item.key] == event.league.slug),
+            (
+                item
+                for item in TOP_LEAGUES
+                if ODDS_API_IO_LEAGUE_SLUGS[item.key] == event.league.slug
+            ),
             None,
         )
         if league is None:
@@ -420,9 +456,25 @@ class OddsApiIoProvider:
             "ml": "h2h",
             "moneyline": "h2h",
             "draw no bet": "draw_no_bet",
+            "double chance": "double_chance",
             "both teams to score": "btts",
             "totals": "totals",
             "goals over/under": "totals",
+            "spread": "spread",
+            "asian handicap": "spread",
+            "handicap": "spread",
+            "odd/even": "odd_even",
+            "odd even": "odd_even",
+            "ml ht": "first_half_h2h",
+            "moneyline ht": "first_half_h2h",
+            "1st half ml": "first_half_h2h",
+            "1st half moneyline": "first_half_h2h",
+            "totals ht": "first_half_totals",
+            "goals over/under ht": "first_half_totals",
+            "1st half totals": "first_half_totals",
+            "1st half goals over/under": "first_half_totals",
+            "corners spread": "corners_spread",
+            "cards spread": "cards_spread",
         }.get(normalized)
 
     @staticmethod
@@ -430,8 +482,21 @@ class OddsApiIoProvider:
         return {
             "h2h": {"home": "home", "draw": "draw", "away": "away"},
             "draw_no_bet": {"home": "home", "away": "away"},
+            "double_chance": {
+                "1X": "1x",
+                "12": "12",
+                "X2": "x2",
+                "1x": "1x",
+                "x2": "x2",
+            },
             "btts": {"yes": "yes", "no": "no"},
             "totals": {"over": "over", "under": "under"},
+            "spread": {"home": "home", "away": "away"},
+            "odd_even": {"odd": "odd", "even": "even"},
+            "first_half_h2h": {"home": "home", "draw": "draw", "away": "away"},
+            "first_half_totals": {"over": "over", "under": "under"},
+            "corners_spread": {"home": "home", "away": "away"},
+            "cards_spread": {"home": "home", "away": "away"},
         }.get(market_key, {})
 
     @staticmethod
@@ -439,8 +504,15 @@ class OddsApiIoProvider:
         return {
             "h2h": ("home", "draw", "away"),
             "draw_no_bet": ("home", "away"),
+            "double_chance": ("1x", "12", "x2"),
             "btts": ("yes", "no"),
             "totals": ("over", "under"),
+            "spread": ("home", "away"),
+            "odd_even": ("odd", "even"),
+            "first_half_h2h": ("home", "draw", "away"),
+            "first_half_totals": ("over", "under"),
+            "corners_spread": ("home", "away"),
+            "cards_spread": ("home", "away"),
         }.get(market_key)
 
     @staticmethod
@@ -448,8 +520,15 @@ class OddsApiIoProvider:
         return {
             "h2h": "Maç sonucu",
             "draw_no_bet": "Beraberlikte iade",
+            "double_chance": "Çifte şans",
             "btts": "Karşılıklı gol",
             "totals": "Toplam gol",
+            "spread": "Handikap",
+            "odd_even": "Tek/Çift gol",
+            "first_half_h2h": "İlk yarı sonucu",
+            "first_half_totals": "İlk yarı toplam gol",
+            "corners_spread": "Korner handikap",
+            "cards_spread": "Kart handikap",
         }[market_key]
 
     @staticmethod
@@ -462,6 +541,11 @@ class OddsApiIoProvider:
             "under": "Alt",
             "yes": "Var",
             "no": "Yok",
+            "1x": "Ev sahibi veya beraberlik",
+            "12": "Ev sahibi veya deplasman",
+            "x2": "Beraberlik veya deplasman",
+            "odd": "Tek",
+            "even": "Çift",
         }[outcome]
 
     @staticmethod

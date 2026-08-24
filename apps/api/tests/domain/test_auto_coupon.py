@@ -8,6 +8,8 @@ from app.domain.auto_coupon import (
     AutoCandidate,
     CouponSelection,
     LeaguePolicy,
+    MarketOdds,
+    MarketQuote,
     league_for_fixture,
 )
 from app.domain.fixtures import CanonicalFixture
@@ -126,3 +128,77 @@ def test_multi_market_settlement_handles_totals_btts_and_draw_no_bet() -> None:
         AutoCouponService._settlement_status("team_totals:Home Club:over:1.5", finished, "home")
         == "won"
     )
+    assert (
+        AutoCouponService._settlement_status("double_chance:match:1x:none", finished, "home")
+        == "won"
+    )
+    assert (
+        AutoCouponService._settlement_status("double_chance:match:x2:none", finished, "home")
+        == "lost"
+    )
+    assert AutoCouponService._settlement_status("spread:match:home:-0.5", finished, "home") == "won"
+    assert (
+        AutoCouponService._settlement_status("spread:match:away:-0.5", finished, "home") == "lost"
+    )
+    assert (
+        AutoCouponService._settlement_status("odd_even:match:odd:none", finished, "home") == "won"
+    )
+    assert (
+        AutoCouponService._settlement_status("first_half_h2h:match:home:none", finished, "home")
+        == "void"
+    )
+
+
+def test_daily_journal_prefers_richer_settleable_market_over_plain_h2h() -> None:
+    now = datetime(2026, 8, 24, 9, 0, tzinfo=UTC)
+    league = TOP_LEAGUES[0]
+    candidate = AutoCandidate(
+        fixture=fixture("epl"),
+        league=league,
+        auto_score=88,
+        memory_case_count=0,
+        positive_factors=("Premier League izin listesinde",),
+        risk_flags=("Kadro kapanışa kadar değişebilir",),
+    )
+    market = MarketOdds(
+        provider="odds_api_io",
+        event_id="fixture-1",
+        observed_at=now,
+        bookmaker_count=5,
+        home_decimal=Decimal("1.80"),
+        draw_decimal=Decimal("3.50"),
+        away_decimal=Decimal("4.50"),
+        fair_home_probability=Decimal(".55"),
+        fair_draw_probability=Decimal(".25"),
+        fair_away_probability=Decimal(".20"),
+        quotes=(
+            MarketQuote(
+                provider="odds_api_io",
+                observed_at=now,
+                market_key="h2h",
+                market_label="Maç sonucu",
+                outcome_key="home",
+                outcome_label="Ev sahibi",
+                decimal_odds=Decimal("1.80"),
+                fair_probability=Decimal(".55"),
+                bookmaker_count=5,
+            ),
+            MarketQuote(
+                provider="odds_api_io",
+                observed_at=now,
+                market_key="totals",
+                market_label="Toplam gol",
+                outcome_key="over",
+                outcome_label="Üst",
+                point=Decimal("2.5"),
+                decimal_odds=Decimal("1.76"),
+                fair_probability=Decimal(".52"),
+                bookmaker_count=5,
+            ),
+        ),
+    )
+
+    quote = AutoCouponService._journal_quote(candidate, market, now)
+
+    assert quote is not None
+    assert quote.market_key == "totals"

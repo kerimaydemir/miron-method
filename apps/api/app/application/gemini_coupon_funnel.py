@@ -5,7 +5,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.domain.auto_coupon import AutoCandidate, FunnelDecision
+from app.domain.auto_coupon import AutoCandidate, FunnelDecision, MarketQuote
 from app.domain.registries import ModelRegistry, ModelRoute, ProviderRegistry
 from app.infrastructure.gemini_client import GeminiClient, GeminiJsonRequest, GeminiJsonResult
 
@@ -135,8 +135,8 @@ class GeminiCouponFunnel:
             {
                 "stage": stage,
                 "selection_rule": target,
-                "candidates": [item.model_dump(mode="json") for item in candidates],
-                "validated_case_memory": memory_context,
+                "candidates": [GeminiCouponFunnel._candidate_packet(item) for item in candidates],
+                "validated_case_memory": memory_context[:12],
             },
             ensure_ascii=False,
             sort_keys=True,
@@ -157,6 +157,78 @@ class GeminiCouponFunnel:
             max_output_tokens=2_048,
             thinking_level=thinking_level,
         )
+
+    @staticmethod
+    def _candidate_packet(candidate: AutoCandidate) -> dict[str, object]:
+        market = candidate.market_odds
+        return {
+            "fixture": candidate.fixture.model_dump(mode="json"),
+            "league": {
+                "key": candidate.league.key,
+                "name": candidate.league.name,
+                "country_code": candidate.league.country_code,
+                "prestige_weight": candidate.league.prestige_weight,
+            },
+            "auto_score": candidate.auto_score,
+            "memory_case_count": candidate.memory_case_count,
+            "positive_factors": candidate.positive_factors[:6],
+            "risk_flags": candidate.risk_flags[:6],
+            "market": None
+            if market is None
+            else {
+                "provider": market.provider,
+                "event_id": market.event_id,
+                "observed_at": market.observed_at.isoformat(),
+                "bookmaker_count": market.bookmaker_count,
+                "h2h": {
+                    "home_decimal": str(market.home_decimal),
+                    "draw_decimal": str(market.draw_decimal),
+                    "away_decimal": str(market.away_decimal),
+                    "fair_home_probability": str(market.fair_home_probability),
+                    "fair_draw_probability": str(market.fair_draw_probability),
+                    "fair_away_probability": str(market.fair_away_probability),
+                },
+                "quotes": [
+                    GeminiCouponFunnel._quote_packet(quote)
+                    for quote in sorted(
+                        market.quotes,
+                        key=GeminiCouponFunnel._quote_sort_key,
+                        reverse=True,
+                    )[:24]
+                ],
+            },
+        }
+
+    @staticmethod
+    def _quote_packet(quote: MarketQuote) -> dict[str, object]:
+        return {
+            "market_key": quote.market_key,
+            "market_label": quote.market_label,
+            "outcome_key": quote.outcome_key,
+            "outcome_label": quote.outcome_label,
+            "description": quote.description,
+            "point": str(quote.point) if quote.point is not None else None,
+            "decimal_odds": str(quote.decimal_odds),
+            "fair_probability": str(quote.fair_probability),
+            "bookmaker_count": quote.bookmaker_count,
+            "observed_at": quote.observed_at.isoformat(),
+        }
+
+    @staticmethod
+    def _quote_sort_key(quote: MarketQuote) -> tuple[int, Decimal, Decimal, int]:
+        depth = {
+            "spread": 9,
+            "totals": 8,
+            "first_half_totals": 8,
+            "btts": 7,
+            "draw_no_bet": 6,
+            "first_half_h2h": 5,
+            "odd_even": 4,
+            "double_chance": 3,
+            "h2h": 0,
+        }.get(quote.market_key, -10)
+        price_balance = min(quote.decimal_odds, Decimal("4")) - Decimal("1")
+        return (depth, quote.fair_probability, price_balance, quote.bookmaker_count)
 
     @staticmethod
     def _validated_ids(

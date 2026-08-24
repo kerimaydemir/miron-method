@@ -15,7 +15,9 @@ logger = logging.getLogger(__name__)
 class BookmakerProvider(Protocol):
     source_name: str
     supported_market_keys: tuple[str, ...]
-    observed_at: datetime | None
+
+    @property
+    def observed_at(self) -> datetime | None: ...
 
     @property
     def available(self) -> bool: ...

@@ -11,11 +11,18 @@ Pick = str
 MarketKey = Literal[
     "h2h",
     "draw_no_bet",
+    "double_chance",
     "btts",
     "totals",
     "alternate_totals",
     "team_totals",
     "alternate_team_totals",
+    "spread",
+    "odd_even",
+    "first_half_h2h",
+    "first_half_totals",
+    "corners_spread",
+    "cards_spread",
 ]
 
 
@@ -29,7 +36,20 @@ class MarketQuote(BaseModel):
     observed_at: datetime
     market_key: MarketKey
     market_label: str
-    outcome_key: Literal["home", "draw", "away", "over", "under", "yes", "no"]
+    outcome_key: Literal[
+        "home",
+        "draw",
+        "away",
+        "over",
+        "under",
+        "yes",
+        "no",
+        "1x",
+        "12",
+        "x2",
+        "odd",
+        "even",
+    ]
     outcome_label: str
     description: str | None = None
     point: Decimal | None = None
@@ -362,6 +382,20 @@ class MarketPerformance(BaseModel):
     equal_stake_roi: Decimal | None = None
 
 
+class CalibrationBand(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    label: str
+    lower: Decimal = Field(ge=0, le=1)
+    upper: Decimal = Field(ge=0, le=1)
+    settled: int = Field(ge=0)
+    wins: int = Field(ge=0)
+    losses: int = Field(ge=0)
+    hit_rate: Decimal | None = Field(default=None, ge=0, le=1)
+    average_predicted_probability: Decimal | None = Field(default=None, ge=0, le=1)
+    calibration_error: Decimal | None = Field(default=None, ge=0, le=1)
+
+
 class AutoCouponPerformance(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -376,6 +410,7 @@ class AutoCouponPerformance(BaseModel):
     equal_stake_roi: Decimal | None = None
     process_verdicts: dict[str, int]
     by_market: tuple[MarketPerformance, ...]
+    calibration: tuple[CalibrationBand, ...] = ()
     sample_size_status: Literal["empty", "early", "monitor", "meaningful"]
     notice: str
 

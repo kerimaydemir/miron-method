@@ -108,6 +108,10 @@ class Settings(BaseSettings):
         return bool(self.API_FOOTBALL_API_KEY.get_secret_value())
 
     @property
+    def sportmonks_enabled(self) -> bool:
+        return bool(self.SPORTMONKS_API_KEY.get_secret_value())
+
+    @property
     def api_football_current_odds_enabled(self) -> bool:
         return bool(
             self.API_FOOTBALL_CURRENT_ODDS_ENABLED and self.API_FOOTBALL_API_KEY.get_secret_value()

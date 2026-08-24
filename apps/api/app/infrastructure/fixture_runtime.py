@@ -6,7 +6,7 @@ from app.infrastructure.composite_fixture_provider import (
     CompositeAnalysisFixtureProvider,
     OddsFixtureProvider,
 )
-from app.infrastructure.composite_odds_provider import CompositeOddsProvider
+from app.infrastructure.composite_odds_provider import BookmakerProvider, CompositeOddsProvider
 from app.infrastructure.fallback_fixture_provider import FallbackFixtureProvider
 from app.infrastructure.football_data_org_provider import FootballDataOrgProvider
 from app.infrastructure.mock_fixture_provider import MockFixtureProvider
@@ -58,15 +58,7 @@ wide_markets = tuple(
     item.strip() for item in settings.THE_ODDS_WIDE_MARKETS.split(",") if item.strip()
 )
 
-configured_odds_providers = []
-if settings.odds_enabled:
-    the_odds_provider = TheOddsApiProvider(
-        api_key=settings.THE_ODDS_API_KEY.get_secret_value(),
-        base_url=settings.THE_ODDS_API_BASE_URL,
-        refresh_seconds=settings.ODDS_REFRESH_SECONDS,
-        wide_markets=wide_markets,
-    )
-    configured_odds_providers.append(the_odds_provider)
+configured_odds_providers: list[BookmakerProvider] = []
 if settings.odds_api_io_enabled:
     configured_odds_providers.append(
         OddsApiIoProvider(
@@ -77,6 +69,14 @@ if settings.odds_api_io_enabled:
             events_per_league=settings.ODDS_API_IO_EVENTS_PER_LEAGUE,
         )
     )
+if settings.odds_enabled:
+    the_odds_provider = TheOddsApiProvider(
+        api_key=settings.THE_ODDS_API_KEY.get_secret_value(),
+        base_url=settings.THE_ODDS_API_BASE_URL,
+        refresh_seconds=settings.ODDS_REFRESH_SECONDS,
+        wide_markets=wide_markets,
+    )
+    configured_odds_providers.append(the_odds_provider)
 if settings.api_football_current_odds_enabled or (
     settings.api_football_enabled and configured_odds_providers
 ):
@@ -89,7 +89,7 @@ if settings.api_football_current_odds_enabled or (
         )
     )
 
-odds_provider: ApiFootballOddsProvider | CompositeOddsProvider | OddsApiIoProvider | TheOddsApiProvider
+odds_provider: BookmakerProvider
 if len(configured_odds_providers) > 1:
     odds_provider = CompositeOddsProvider(tuple(configured_odds_providers))
 elif len(configured_odds_providers) == 1:

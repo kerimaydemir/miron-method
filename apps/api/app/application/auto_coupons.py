@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 import math
 from collections.abc import Sequence
@@ -11,7 +12,7 @@ import httpx
 from app.application.analysis_runs import AnalysisRunService
 from app.application.gemini_coupon_funnel import GeminiCouponFunnel
 from app.application.post_match import PostMatchService
-from app.domain.analysis import FinalForecast
+from app.domain.analysis import FinalForecast, OutcomeProbability
 from app.domain.auto_coupon import (
     AutoCandidate,
     AutoCouponPerformance,
@@ -152,11 +153,14 @@ class AutoCouponService:
         source_mode: Literal["bookmaker_live", "fixture_live_no_odds"] = "bookmaker_live"
         try:
             market_pairs = (
-                await self._odds.list_market_fixtures(start_utc=now, end_utc=end)
+                await asyncio.wait_for(
+                    self._odds.list_market_fixtures(start_utc=now, end_utc=end),
+                    timeout=60,
+                )
                 if self._odds.available
                 else ()
             )
-        except (httpx.HTTPError, RuntimeError, ValueError):
+        except (TimeoutError, httpx.HTTPError, RuntimeError, ValueError):
             market_pairs = ()
         markets = {fixture.id: market for fixture, market in market_pairs}
         fixtures = tuple(fixture for fixture, _ in market_pairs)
@@ -175,8 +179,10 @@ class AutoCouponService:
         daily_predictions = self._daily_predictions(run_id, initial, markets, now)
         if markets:
             try:
-                rough, critic, funnel_cost = await self._funnel.select(initial, memory_context)
-            except httpx.HTTPError:
+                rough, critic, funnel_cost = await asyncio.wait_for(
+                    self._funnel.select(initial, memory_context), timeout=45
+                )
+            except (TimeoutError, httpx.HTTPError):
                 rough, critic = self._empty_funnel_after_journal(
                     initial,
                     "Gemini eleme çağrısı zamanında tamamlanmadı; günlük jurnal kaydedildi, kupon üretilmedi.",
@@ -194,15 +200,33 @@ class AutoCouponService:
         analysis_cost = Decimal("0")
         for fixture_id in critic.selected_fixture_ids:
             candidate = by_id[fixture_id]
-            market = await self._odds.wide_market_for(fixture_id)
+            try:
+                market = await asyncio.wait_for(self._odds.wide_market_for(fixture_id), timeout=45)
+            except (TimeoutError, KeyError, httpx.HTTPError, RuntimeError, ValueError):
+                continue
             analysis_key = f"auto-{run_id.hex[:16]}-{fixture_id.hex[:16]}"
-            analysis_run = await self._analysis.start(
-                fixture_id,
-                analysis_key,
-                hashlib.sha256(str(fixture_id).encode()).hexdigest(),
-                uuid5(NAMESPACE_URL, f"auto-correlation:{run_id}:{fixture_id}"),
-            )
-            locked = await self._analysis.lock(analysis_run.run_id)
+            try:
+                analysis_run = await asyncio.wait_for(
+                    self._analysis.start(
+                        fixture_id,
+                        analysis_key,
+                        hashlib.sha256(str(fixture_id).encode()).hexdigest(),
+                        uuid5(NAMESPACE_URL, f"auto-correlation:{run_id}:{fixture_id}"),
+                    ),
+                    timeout=45,
+                )
+                locked = await asyncio.wait_for(
+                    self._analysis.lock(analysis_run.run_id), timeout=10
+                )
+            except (
+                TimeoutError,
+                PermissionError,
+                RuntimeError,
+                ValueError,
+                KeyError,
+                httpx.HTTPError,
+            ):
+                continue
             if locked.lock_id is None:
                 raise RuntimeError("AUTO_COUPON_LOCK_REQUIRED")
             best = self._best_market_selection(market, locked.forecast, candidate.fixture, now)
@@ -523,8 +547,18 @@ class AutoCouponService:
             if actual_result == "draw":
                 return "void"
             return "won" if outcome == actual_result else "lost"
+        if market_key == "double_chance":
+            covered = {
+                "1x": {"home", "draw"},
+                "12": {"home", "away"},
+                "x2": {"draw", "away"},
+            }.get(outcome)
+            return "won" if covered is not None and actual_result in covered else "lost"
         if market_key == "btts":
             realized = "yes" if fixture.home_score > 0 and fixture.away_score > 0 else "no"
+            return "won" if outcome == realized else "lost"
+        if market_key == "odd_even":
+            realized = "even" if (fixture.home_score + fixture.away_score) % 2 == 0 else "odd"
             return "won" if outcome == realized else "lost"
         try:
             line = Decimal(raw_line)
@@ -539,6 +573,16 @@ class AutoCouponService:
                 goals = Decimal(fixture.away_score)
             else:
                 return "void"
+        elif market_key == "spread":
+            if outcome == "home":
+                adjusted_margin = Decimal(fixture.home_score - fixture.away_score) + line
+            elif outcome == "away":
+                adjusted_margin = Decimal(fixture.away_score - fixture.home_score) - line
+            else:
+                return "void"
+            if adjusted_margin == 0:
+                return "void"
+            return "won" if adjusted_margin > 0 else "lost"
         else:
             return "void"
         if goals == line:
@@ -721,8 +765,12 @@ class AutoCouponService:
             if quote.bookmaker_count >= 1 and now - quote.observed_at <= timedelta(hours=24)
         )
         quotes = fresh_quotes or market.quotes
+        reviewable = tuple(quote for quote in quotes if cls._settleable_market(quote.market_key))
+        quotes = reviewable or quotes
         preferred = tuple(quote for quote in quotes if quote.decimal_odds >= Decimal("1.35"))
         pool = preferred or quotes
+        richer_pool = tuple(quote for quote in pool if quote.market_key != "h2h")
+        pool = richer_pool or pool
         if not pool:
             return None
         return max(
@@ -731,9 +779,38 @@ class AutoCouponService:
                 quote.fair_probability * Decimal("100")
                 + min(quote.decimal_odds, Decimal("4")) * Decimal("7")
                 + Decimal(min(quote.bookmaker_count, 8)),
+                cls._market_depth_bonus(quote.market_key) * Decimal("3"),
                 quote.decimal_odds,
             ),
         )
+
+    @staticmethod
+    def _settleable_market(market_key: str) -> bool:
+        return market_key in {
+            "h2h",
+            "draw_no_bet",
+            "double_chance",
+            "btts",
+            "totals",
+            "alternate_totals",
+            "team_totals",
+            "alternate_team_totals",
+            "spread",
+            "odd_even",
+        }
+
+    @staticmethod
+    def _market_depth_bonus(market_key: str) -> Decimal:
+        return {
+            "spread": Decimal("9"),
+            "totals": Decimal("8"),
+            "alternate_totals": Decimal("8"),
+            "btts": Decimal("7"),
+            "draw_no_bet": Decimal("6"),
+            "odd_even": Decimal("4"),
+            "double_chance": Decimal("3"),
+            "h2h": Decimal("0"),
+        }.get(market_key, Decimal("-10"))
 
     @staticmethod
     def _journal_probability(candidate: AutoCandidate, quote: MarketQuote) -> Decimal:
@@ -763,6 +840,7 @@ class AutoCouponService:
             + Decimal(candidate.auto_score) * Decimal(".25")
             + price_balance * Decimal("8")
             + Decimal(min(quote.bookmaker_count, 8))
+            + AutoCouponService._market_depth_bonus(quote.market_key)
         )
         return min(Decimal("100"), score).quantize(Decimal(".01"), rounding=ROUND_HALF_UP)
 
@@ -1031,6 +1109,7 @@ class AutoCouponService:
                 + forecast.confidence * Decimal("15")
                 + price_quality * Decimal("10")
                 + min(Decimal(quote.bookmaker_count), Decimal("10"))
+                + cls._market_depth_bonus(quote.market_key) * Decimal("1.5")
             ).quantize(Decimal(".01"), rounding=ROUND_HALF_UP)
             candidates.append((score, quote, probability, edge))
         if not candidates:
@@ -1054,14 +1133,42 @@ class AutoCouponService:
                 return None
             non_draw = Decimal("1") - outcomes["draw"]
             return outcomes[quote.outcome_key] / non_draw if non_draw > 0 else None
+        if quote.market_key == "double_chance":
+            return {
+                "1x": outcomes["home"] + outcomes["draw"],
+                "12": outcomes["home"] + outcomes["away"],
+                "x2": outcomes["draw"] + outcomes["away"],
+            }.get(quote.outcome_key)
         if quote.market_key == "btts":
             yes = (Decimal("1") - Decimal(str(math.exp(-float(home_xg))))) * (
                 Decimal("1") - Decimal(str(math.exp(-float(away_xg))))
             )
             return yes if quote.outcome_key == "yes" else Decimal("1") - yes
+        if quote.market_key == "odd_even":
+            total_xg = home_xg + away_xg
+            even = (Decimal("1") + Decimal(str(math.exp(-2 * float(total_xg))))) / Decimal("2")
+            return Decimal("1") - even if quote.outcome_key == "odd" else even
         if quote.market_key in ("totals", "alternate_totals"):
             return AutoCouponService._over_under_probability(
                 home_xg + away_xg, quote.point, quote.outcome_key
+            )
+        if quote.market_key == "spread":
+            return AutoCouponService._spread_probability(
+                home_xg, away_xg, quote.point, quote.outcome_key
+            )
+        if quote.market_key == "first_half_h2h":
+            if quote.outcome_key not in ("home", "draw", "away"):
+                return None
+            half_outcomes = {
+                item.outcome: item.probability
+                for item in AutoCouponService._poisson_outcome_probabilities(
+                    home_xg * Decimal(".45"), away_xg * Decimal(".45")
+                )
+            }
+            return half_outcomes[quote.outcome_key]
+        if quote.market_key == "first_half_totals":
+            return AutoCouponService._over_under_probability(
+                (home_xg + away_xg) * Decimal(".45"), quote.point, quote.outcome_key
             )
         if quote.market_key in ("team_totals", "alternate_team_totals"):
             description = (quote.description or "").casefold()
@@ -1097,6 +1204,60 @@ class AutoCouponService:
         )
         probability = Decimal("1") - under if outcome == "over" else under
         return min(Decimal("1"), max(Decimal("0"), probability))
+
+    @staticmethod
+    def _spread_probability(
+        home_xg: Decimal, away_xg: Decimal, point: Decimal | None, outcome: str
+    ) -> Decimal | None:
+        if point is None or outcome not in ("home", "away"):
+            return None
+        probability = Decimal("0")
+        for home_goals in range(11):
+            home_prob = AutoCouponService._poisson_probability(home_xg, home_goals)
+            for away_goals in range(11):
+                away_prob = AutoCouponService._poisson_probability(away_xg, away_goals)
+                if outcome == "home":
+                    adjusted = Decimal(home_goals - away_goals) + point
+                else:
+                    adjusted = Decimal(away_goals - home_goals) - point
+                if adjusted > 0:
+                    probability += home_prob * away_prob
+        return min(Decimal("1"), max(Decimal("0"), probability))
+
+    @staticmethod
+    def _poisson_probability(intensity: Decimal, goals: int) -> Decimal:
+        return (
+            Decimal(str(math.exp(-float(intensity))))
+            * (intensity**goals)
+            / Decimal(math.factorial(goals))
+        )
+
+    @staticmethod
+    def _poisson_outcome_probabilities(
+        home_xg: Decimal, away_xg: Decimal
+    ) -> tuple[OutcomeProbability, OutcomeProbability, OutcomeProbability]:
+        home = Decimal("0")
+        draw = Decimal("0")
+        away = Decimal("0")
+        for home_goals in range(11):
+            home_prob = AutoCouponService._poisson_probability(home_xg, home_goals)
+            for away_goals in range(11):
+                item = home_prob * AutoCouponService._poisson_probability(away_xg, away_goals)
+                if home_goals > away_goals:
+                    home += item
+                elif home_goals == away_goals:
+                    draw += item
+                else:
+                    away += item
+        total = home + draw + away
+        home = (home / total).quantize(Decimal(".000001"), rounding=ROUND_HALF_UP)
+        draw = (draw / total).quantize(Decimal(".000001"), rounding=ROUND_HALF_UP)
+        away = Decimal("1") - home - draw
+        return (
+            OutcomeProbability(outcome="home", probability=home, lower=home, upper=home),
+            OutcomeProbability(outcome="draw", probability=draw, lower=draw, upper=draw),
+            OutcomeProbability(outcome="away", probability=away, lower=away, upper=away),
+        )
 
     @staticmethod
     def _pick_key(quote: MarketQuote) -> str:
