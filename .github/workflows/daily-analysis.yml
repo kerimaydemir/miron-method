@@ -95,13 +95,13 @@ jobs:
           OPENLIGADB_BASE_URL=https://api.openligadb.de
           OPENLIGADB_LEAGUES=pl1,la1,bl1,it1,fr1,nl1,pt1,tr1
           OPENLIGADB_REFRESH_SECONDS=60
-          THE_ODDS_API_KEY=${THE_ODDS_API_KEY}
+          THE_ODDS_API_KEY=
           THE_ODDS_API_BASE_URL=https://api.the-odds-api.com/v4
           THE_ODDS_WIDE_MARKETS=h2h,totals
           ODDS_API_IO_KEY=${ODDS_API_IO_KEY}
           ODDS_API_IO_BASE_URL=https://api.odds-api.io/v3
           ODDS_API_IO_BOOKMAKERS=Bet365,Unibet
-          ODDS_API_IO_EVENTS_PER_LEAGUE=3
+          ODDS_API_IO_EVENTS_PER_LEAGUE=1
           ODDS_REFRESH_SECONDS=300
           AUTO_COUPON_WINDOW_DAYS=1
           AUTO_COUPON_REUSE_SECONDS=21600
