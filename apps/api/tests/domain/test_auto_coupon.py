@@ -200,7 +200,9 @@ def test_forced_daily_coupon_combines_two_banko_legs_when_strict_gate_is_empty()
     now = datetime(2026, 8, 24, 9, 0, tzinfo=UTC)
     league = TOP_LEAGUES[1]
     first_fixture = fixture("la1")
-    second_fixture = fixture("la1")
+    second_fixture = fixture("la1").model_copy(
+        update={"home_team": "Second Home", "away_team": "Second Away"}
+    )
     candidates = (
         AutoCandidate(
             fixture=first_fixture,
@@ -264,6 +266,120 @@ def test_forced_daily_coupon_combines_two_banko_legs_when_strict_gate_is_empty()
     assert tickets[0].combined_decimal_odds == Decimal("1.97")
     assert tickets[0].combined_probability < Decimal(".70")
     assert "Forced mod %70 garanti iddiası değildir" in selections[0].uncertainty
+
+
+def test_forced_daily_coupon_rejects_duplicate_match_from_different_providers() -> None:
+    now = datetime(2026, 8, 24, 9, 0, tzinfo=UTC)
+    league = TOP_LEAGUES[1]
+    first_fixture = fixture("la1").model_copy(
+        update={"home_team": "Valencia CF", "away_team": "Real Betis Seville"}
+    )
+    duplicate_fixture = fixture("la1").model_copy(
+        update={"home_team": "Valencia", "away_team": "Real Betis"}
+    )
+    candidates = (
+        AutoCandidate(
+            fixture=first_fixture,
+            league=league,
+            auto_score=85,
+            memory_case_count=0,
+            positive_factors=("LaLiga",),
+            risk_flags=(),
+        ),
+        AutoCandidate(
+            fixture=duplicate_fixture,
+            league=league,
+            auto_score=83,
+            memory_case_count=0,
+            positive_factors=("LaLiga",),
+            risk_flags=(),
+        ),
+    )
+    first_quote = MarketQuote(
+        provider="api_football",
+        observed_at=now,
+        market_key="spread",
+        market_label="Handikap",
+        outcome_key="home",
+        outcome_label="Ev sahibi",
+        description="Valencia",
+        point=Decimal("1"),
+        decimal_odds=Decimal("1.23"),
+        fair_probability=Decimal(".77"),
+        bookmaker_count=1,
+    )
+    duplicate_quote = MarketQuote(
+        provider="espn_core_odds",
+        observed_at=now,
+        market_key="spread",
+        market_label="Handikap",
+        outcome_key="home",
+        outcome_label="Ev sahibi",
+        description="Valencia",
+        point=Decimal("0.5"),
+        decimal_odds=Decimal("1.48"),
+        fair_probability=Decimal(".62"),
+        bookmaker_count=1,
+    )
+    service = AutoCouponService.__new__(AutoCouponService)
+    service._forced_min_combined_odds = Decimal("1.80")
+    service._forced_max_combined_odds = Decimal("2.20")
+
+    selections, tickets = service._forced_daily_coupon(
+        uuid4(),
+        candidates,
+        {
+            first_fixture.id: market_for_quote(first_quote),
+            duplicate_fixture.id: market_for_quote(duplicate_quote),
+        },
+        now,
+    )
+
+    assert selections == ()
+    assert tickets == ()
+
+
+def test_candidate_deduplication_collapses_provider_name_variants() -> None:
+    league = TOP_LEAGUES[1]
+    first_fixture = fixture("la1").model_copy(
+        update={"home_team": "Valencia CF", "away_team": "Real Betis Seville"}
+    )
+    duplicate_fixture = fixture("la1").model_copy(
+        update={"home_team": "Valencia", "away_team": "Real Betis"}
+    )
+    other_fixture = fixture("la1").model_copy(
+        update={"home_team": "Celta Vigo", "away_team": "Osasuna"}
+    )
+    candidates = (
+        AutoCandidate(
+            fixture=first_fixture,
+            league=league,
+            auto_score=85,
+            memory_case_count=0,
+            positive_factors=("LaLiga",),
+            risk_flags=(),
+        ),
+        AutoCandidate(
+            fixture=duplicate_fixture,
+            league=league,
+            auto_score=83,
+            memory_case_count=0,
+            positive_factors=("LaLiga",),
+            risk_flags=(),
+        ),
+        AutoCandidate(
+            fixture=other_fixture,
+            league=league,
+            auto_score=80,
+            memory_case_count=0,
+            positive_factors=("LaLiga",),
+            risk_flags=(),
+        ),
+    )
+
+    unique = AutoCouponService._dedupe_candidates_by_match(candidates)
+
+    assert [item.fixture.home_team for item in unique] == ["Valencia CF", "Celta Vigo"]
 
 
 def test_ticket_math_fails_closed_without_bookmaker_odds() -> None:

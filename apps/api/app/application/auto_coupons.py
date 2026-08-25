@@ -1,6 +1,8 @@
 import asyncio
 import hashlib
 import math
+import re
+import unicodedata
 from collections.abc import Sequence
 from datetime import UTC, datetime, time, timedelta
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
@@ -65,6 +67,20 @@ BIG_CLUB_MARKERS = (
     "fenerbahçe",
     "besiktas",
     "beşiktaş",
+)
+TEAM_SIGNATURE_STOPWORDS = frozenset(
+    {
+        "afc",
+        "cf",
+        "club",
+        "de",
+        "fc",
+        "football",
+        "sc",
+        "sevilla",
+        "seville",
+        "the",
+    }
 )
 
 # Publish only tickets that clear the user's explicit value gate. A single
@@ -201,7 +217,9 @@ class AutoCouponService:
         if not fixtures:
             raise ValueError("AUTO_COUPON_NO_CURRENT_LIVE_MARKETS")
         memory_context = self._repository.memory_context("", limit=20)
-        candidates = await self._rank_candidates(fixtures, markets, memory_context)
+        candidates = self._dedupe_candidates_by_match(
+            await self._rank_candidates(fixtures, markets, memory_context)
+        )
         initial = candidates[:10]
         if not initial:
             raise ValueError("AUTO_COUPON_NO_CURRENT_TOP_LEAGUE_FIXTURES")
@@ -1537,7 +1555,7 @@ class AutoCouponService:
                     - price_penalty
                 ).quantize(Decimal(".01"), rounding=ROUND_HALF_UP)
                 leg_pool.append((score, candidate, quote, probability, edge))
-        if len({item[1].fixture.id for item in leg_pool}) < 2:
+        if len({self._fixture_match_key(item[1].fixture) for item in leg_pool}) < 2:
             return (), ()
 
         viable_pairs: list[
@@ -1560,7 +1578,9 @@ class AutoCouponService:
         ] = []
         for left_index, left in enumerate(leg_pool):
             for right in leg_pool[left_index + 1 :]:
-                if left[1].fixture.id == right[1].fixture.id:
+                if self._fixture_match_key(left[1].fixture) == self._fixture_match_key(
+                    right[1].fixture
+                ):
                     continue
                 combined_odds = left[2].decimal_odds * right[2].decimal_odds
                 if combined_odds < self._forced_min_combined_odds:
@@ -1605,6 +1625,41 @@ class AutoCouponService:
             risk_label="orta" if combined_probability >= Decimal(".55") else "yüksek",
         )
         return selections, (ticket,)
+
+    @classmethod
+    def _dedupe_candidates_by_match(
+        cls, candidates: tuple[AutoCandidate, ...]
+    ) -> tuple[AutoCandidate, ...]:
+        seen: set[tuple[str, str]] = set()
+        unique: list[AutoCandidate] = []
+        for candidate in candidates:
+            key = cls._fixture_match_key(candidate.fixture)
+            if key in seen:
+                continue
+            seen.add(key)
+            unique.append(candidate)
+        return tuple(unique)
+
+    @staticmethod
+    def _fixture_match_key(fixture: CanonicalFixture) -> tuple[str, str]:
+        teams = sorted(
+            (
+                AutoCouponService._team_signature(fixture.home_team),
+                AutoCouponService._team_signature(fixture.away_team),
+            )
+        )
+        return teams[0], teams[1]
+
+    @staticmethod
+    def _team_signature(team_name: str) -> str:
+        normalized = unicodedata.normalize("NFKD", team_name)
+        ascii_name = normalized.encode("ascii", "ignore").decode("ascii")
+        tokens = [
+            token
+            for token in re.sub(r"[^a-z0-9]+", " ", ascii_name.lower()).split()
+            if token not in TEAM_SIGNATURE_STOPWORDS
+        ]
+        return "".join(tokens) or ascii_name.lower().strip()
 
     def _forced_selection(
         self,
