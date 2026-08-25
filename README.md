@@ -62,8 +62,8 @@ after a Gemini error. See
 - simplified Gemini-first interface with one primary scan action and a collapsed
   31-stage audit trail
 - separate `/auto` funnel: fixed eight-league allowlist, stale-season rejection,
-  10→adaptive shortlist→3 Gemini filtering, three locked MİRON BABA analyses,
-  and single/double/treble tickets
+  same-Istanbul-day scan, 10→adaptive shortlist→3 Gemini filtering, three locked
+  MİRON BABA analyses, and single/double/treble tickets
 - The Odds API/API-Football bookmaker averages with proportional overround removal;
   daily journal creation stays alive during quota/timeout failures and records
   fixture-only entries without inventing odds

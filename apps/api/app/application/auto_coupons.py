@@ -2,10 +2,11 @@ import asyncio
 import hashlib
 import math
 from collections.abc import Sequence
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, time, timedelta
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Literal, Protocol, cast
 from uuid import NAMESPACE_URL, UUID, uuid5
+from zoneinfo import ZoneInfo
 
 import httpx
 
@@ -75,6 +76,20 @@ MIN_SELECTION_DECIMAL_ODDS = Decimal("1.80")
 MIN_COMBO_LEG_DECIMAL_ODDS = Decimal("1.20")
 
 
+def scan_end_for_window(
+    now: datetime, *, window_days: int, app_timezone: ZoneInfo
+) -> datetime:
+    if window_days == 1:
+        local_now = now.astimezone(app_timezone)
+        next_midnight = datetime.combine(
+            local_now.date() + timedelta(days=1),
+            time.min,
+            tzinfo=app_timezone,
+        )
+        return next_midnight.astimezone(UTC)
+    return now + timedelta(days=window_days)
+
+
 class FixtureSelectionProvider(Protocol):
     async def list_fixtures(
         self,
@@ -119,6 +134,7 @@ class AutoCouponService:
         force_daily_ticket: bool = True,
         forced_min_combined_odds: Decimal = Decimal("1.80"),
         forced_max_combined_odds: Decimal = Decimal("2.20"),
+        app_timezone: str = "Europe/Istanbul",
     ) -> None:
         self._fixtures = fixtures
         self._analysis_fixtures = analysis_fixtures
@@ -134,6 +150,7 @@ class AutoCouponService:
         self._force_daily_ticket = force_daily_ticket
         self._forced_min_combined_odds = forced_min_combined_odds
         self._forced_max_combined_odds = forced_max_combined_odds
+        self._app_timezone = ZoneInfo(app_timezone)
 
     async def create(self, *, idempotency_key: str) -> AutoCouponRun:
         if not self._odds.available and (
@@ -157,7 +174,7 @@ class AutoCouponService:
         latest = self._repository.latest()
         if latest is not None and self._is_reusable(latest, now):
             return latest
-        end = now + timedelta(days=self._window_days)
+        end = self._scan_end(now)
         source_mode: Literal["bookmaker_live", "fixture_live_no_odds"] = "bookmaker_live"
         try:
             market_pairs = (
@@ -421,6 +438,7 @@ class AutoCouponService:
         return "Olasılıksal seçimdir; kesinlik veya bahis tavsiyesi değildir."
 
     def _is_reusable(self, run: AutoCouponRun, now: datetime) -> bool:
+        scan_end = self._scan_end(now)
         return (
             run.state == "completed"
             and run.source_mode == "bookmaker_live"
@@ -429,9 +447,15 @@ class AutoCouponService:
             and all(
                 item.settlement_status == "pending"
                 and item.fixture.kickoff_at > now
+                and item.fixture.kickoff_at <= scan_end
                 and item.market_decimal_odds is not None
                 for item in run.selections
             )
+        )
+
+    def _scan_end(self, now: datetime) -> datetime:
+        return scan_end_for_window(
+            now, window_days=self._window_days, app_timezone=self._app_timezone
         )
 
     def readiness(self) -> AutoCouponReadiness:

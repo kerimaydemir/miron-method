@@ -51,6 +51,7 @@ auto_coupon_service = AutoCouponService(
     force_daily_ticket=settings.AUTO_COUPON_FORCE_DAILY_TICKET,
     forced_min_combined_odds=settings.AUTO_COUPON_FORCED_MIN_COMBINED_ODDS,
     forced_max_combined_odds=settings.AUTO_COUPON_FORCED_MAX_COMBINED_ODDS,
+    app_timezone=settings.APP_TIMEZONE,
 )
 
 _stop_event: asyncio.Event | None = None
