@@ -199,7 +199,7 @@ jobs:
             -o "reports/${PHASE}.json"
           {
             echo "### MIRON BABA ${PHASE}"
-            jq -r '"phase=\(.phase) day=\(.day) daily_predictions=\(.daily_prediction_count // 0) selections=\(.selection_count // 0) settled=\(.settled_count // 0) daily_reviewed=\(.daily_reviewed_count // 0) notice=\(.notice // "ok")"' "reports/${PHASE}.json"
+            jq -r '"phase=\(.phase) day=\(.day) daily_predictions=\(.daily_prediction_count // 0) selections=\(.selection_count // 0) tickets=\(.ticket_count // 0) settled=\(.settled_count // 0) daily_reviewed=\(.daily_reviewed_count // 0) notice=\(.notice // "ok")"' "reports/${PHASE}.json"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Dump and encrypt state
