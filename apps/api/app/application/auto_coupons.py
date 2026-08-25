@@ -165,12 +165,16 @@ class AutoCouponService:
             raise ValueError("AUTO_COUPON_DEEP_DATA_REQUIRED")
         if not self._analysis.deep_analysis_ready:
             raise ValueError("AUTO_COUPON_DEEP_ANALYSIS_NOT_READY")
+        now = datetime.now(UTC)
         run_id = uuid5(NAMESPACE_URL, f"miron-baba-ai:auto-coupon:{idempotency_key}")
         existing = self._repository.load(run_id)
         refresh_existing_journal = existing is not None and not existing.selections
-        if existing is not None and not refresh_existing_journal:
+        if (
+            existing is not None
+            and not refresh_existing_journal
+            and self._is_reusable(existing, now)
+        ):
             return existing
-        now = datetime.now(UTC)
         latest = self._repository.latest()
         if latest is not None and self._is_reusable(latest, now):
             return latest
