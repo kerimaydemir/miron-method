@@ -41,7 +41,7 @@ async def test_provider_normalizes_bookmaker_average_and_removes_overround() -> 
             "id": "event-1",
             "sport_key": "soccer_epl",
             "sport_title": "EPL",
-            "commence_time": "2026-08-24T18:00:00Z",
+            "commence_time": "2026-08-26T18:00:00Z",
             "home_team": "Arsenal",
             "away_team": "Liverpool",
             "bookmakers": [
@@ -93,8 +93,8 @@ async def test_provider_normalizes_bookmaker_average_and_removes_overround() -> 
         client=client,
     )
     items = await provider.list_market_fixtures(
-        start_utc=datetime(2026, 8, 22, tzinfo=UTC),
-        end_utc=datetime(2026, 8, 25, tzinfo=UTC),
+        start_utc=datetime(2026, 8, 26, tzinfo=UTC),
+        end_utc=datetime(2026, 8, 27, tzinfo=UTC),
     )
     assert len(items) == 1
     fixture, market = items[0]

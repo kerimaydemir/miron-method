@@ -73,12 +73,13 @@ def test_value_gate_rejects_probability_below_seventy_percent() -> None:
     assert selected is None
 
 
-def test_value_gate_rejects_price_below_one_eighty() -> None:
+def test_value_gate_accepts_lower_price_as_combo_leg_candidate() -> None:
     selected = AutoCouponService._best_market_selection(
-        _market(price="1.79"), _forecast(".70"), FIXTURE, NOW
+        _market(price="1.35", fair_probability=".65"), _forecast(".75"), FIXTURE, NOW
     )
 
-    assert selected is None
+    assert selected is not None
+    assert selected[0].decimal_odds == Decimal("1.35")
 
 
 def test_value_gate_has_no_two_forty_upper_cap() -> None:

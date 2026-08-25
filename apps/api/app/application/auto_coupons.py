@@ -66,11 +66,13 @@ BIG_CLUB_MARKERS = (
     "beşiktaş",
 )
 
-# Publish only selections that clear the user's explicit value gate. There is
-# deliberately no maximum price: a 2.40+ quote remains eligible when the
-# independently produced probability and margin-free market comparison agree.
+# Publish only tickets that clear the user's explicit value gate. A single
+# selection still needs 1.80+ on its own, but two safer legs can form the coupon
+# when their combined bookmaker price reaches 1.80+ and their combined model
+# probability remains at least 70%.
 MIN_SELECTION_PROBABILITY = Decimal(".70")
 MIN_SELECTION_DECIMAL_ODDS = Decimal("1.80")
+MIN_COMBO_LEG_DECIMAL_ODDS = Decimal("1.20")
 
 
 class FixtureSelectionProvider(Protocol):
@@ -113,6 +115,7 @@ class AutoCouponService:
         live_fixtures_available: bool,
         window_days: int,
         reuse_seconds: int,
+        finalist_analysis_timeout_seconds: int = 240,
     ) -> None:
         self._fixtures = fixtures
         self._analysis_fixtures = analysis_fixtures
@@ -124,6 +127,7 @@ class AutoCouponService:
         self._live_fixtures_available = live_fixtures_available
         self._window_days = window_days
         self._reuse_interval = timedelta(seconds=reuse_seconds)
+        self._finalist_analysis_timeout_seconds = finalist_analysis_timeout_seconds
 
     async def create(self, *, idempotency_key: str) -> AutoCouponRun:
         if not self._odds.available and (
@@ -194,6 +198,8 @@ class AutoCouponService:
             funnel_cost = Decimal("0")
 
         by_id = {item.fixture.id: item for item in initial}
+        if markets and not critic.selected_fixture_ids:
+            rough, critic = self._deterministic_funnel_after_empty_gemini(initial, rough, critic)
         selections: list[CouponSelection] = []
         analysis_cost = Decimal("0")
         finalist_analysis_timed_out = False
@@ -215,7 +221,7 @@ class AutoCouponService:
                         hashlib.sha256(str(fixture_id).encode()).hexdigest(),
                         uuid5(NAMESPACE_URL, f"auto-correlation:{run_id}:{fixture_id}"),
                     ),
-                    timeout=45,
+                    timeout=self._finalist_analysis_timeout_seconds,
                 )
                 locked = await asyncio.wait_for(
                     self._analysis.lock(analysis_run.run_id), timeout=10
@@ -291,12 +297,19 @@ class AutoCouponService:
             )
             analysis_cost += locked.actual_cost_usd
 
-        ordered = tuple(
+        ordered_candidates = tuple(
             sorted(
                 selections,
                 key=lambda item: (item.value_score, item.probability),
                 reverse=True,
             )
+        )
+        tickets = self._tickets(ordered_candidates)
+        ticketed_fixture_ids = {
+            fixture_id for ticket in tickets for fixture_id in ticket.selection_fixture_ids
+        }
+        ordered = tuple(
+            item for item in ordered_candidates if item.fixture.id in ticketed_fixture_ids
         )
         auto_run = AutoCouponRun(
             run_id=run_id,
@@ -309,7 +322,7 @@ class AutoCouponService:
             critic_decision=critic,
             daily_predictions=daily_predictions,
             selections=ordered,
-            tickets=self._tickets(ordered),
+            tickets=tickets,
             rag_case_count=len(memory_context),
             actual_cost_usd=(funnel_cost + analysis_cost).quantize(
                 Decimal(".000001"), rounding=ROUND_HALF_UP
@@ -323,7 +336,7 @@ class AutoCouponService:
                 if finalist_analysis_timed_out and not ordered
                 else "Bugün kanıt, fiyat ve belirsizlik eşiklerini birlikte geçen seçim yok; "
                 "sistem kota doldurmak için kupon üretmedi."
-                if not ordered
+                if not tickets
                 else "Olasılıksal seçimdir; kesinlik veya bahis tavsiyesi değildir."
             ),
         )
@@ -661,7 +674,7 @@ class AutoCouponService:
                 tier: Literal["journal_only", "watchlist", "coupon_candidate"] = (
                     "coupon_candidate"
                     if probability >= MIN_SELECTION_PROBABILITY
-                    and quote.decimal_odds >= MIN_SELECTION_DECIMAL_ODDS
+                    and quote.decimal_odds >= MIN_COMBO_LEG_DECIMAL_ODDS
                     else "watchlist"
                     if probability >= Decimal(".58") and quote.decimal_odds >= Decimal("1.45")
                     else "journal_only"
@@ -1085,6 +1098,41 @@ class AutoCouponService:
         )
 
     @staticmethod
+    def _deterministic_funnel_after_empty_gemini(
+        candidates: tuple[AutoCandidate, ...],
+        rough: FunnelDecision,
+        critic: FunnelDecision,
+    ) -> tuple[FunnelDecision, FunnelDecision]:
+        fallback_ids = tuple(item.fixture.id for item in candidates[: min(3, len(candidates))])
+        all_ids = tuple(item.fixture.id for item in candidates)
+        return (
+            FunnelDecision(
+                stage=rough.stage,
+                input_count=rough.input_count,
+                selected_fixture_ids=fallback_ids,
+                eliminated_fixture_ids=tuple(item for item in all_ids if item not in fallback_ids),
+                rationale=(
+                    f"{rough.rationale} Canlı gerçek odds bulunduğu için boş Gemini ön elemesi "
+                    "nihai karar sayılmadı; en yüksek puanlı adaylar derin finalist analizine "
+                    "gönderildi."
+                ),
+                model_id=f"{rough.model_id}+score-fallback",
+            ),
+            FunnelDecision(
+                stage=critic.stage,
+                input_count=len(fallback_ids),
+                selected_fixture_ids=fallback_ids,
+                eliminated_fixture_ids=(),
+                rationale=(
+                    f"{critic.rationale} Fail-soft kuralı: canlı odds olan günlerde sistem "
+                    "aday varken sessiz kalmaz; kupon yine yalnız derin analiz, gerçek oran, "
+                    "%70+ olasılık ve 1.80+ toplam oran kapısından geçerse yayınlanır."
+                ),
+                model_id=f"{critic.model_id}+score-fallback",
+            ),
+        )
+
+    @staticmethod
     def _market_values(
         market: MarketOdds | None, pick: str
     ) -> tuple[Decimal | None, Decimal | None]:
@@ -1126,9 +1174,9 @@ class AutoCouponService:
             minimum_edge = Decimal(".05") if quote.bookmaker_count == 1 else Decimal(".02")
             if edge < minimum_edge:
                 continue
-            if quote.decimal_odds < MIN_SELECTION_DECIMAL_ODDS:
+            if quote.decimal_odds < MIN_COMBO_LEG_DECIMAL_ODDS:
                 continue
-            price_quality = min(quote.decimal_odds, Decimal("10")) - MIN_SELECTION_DECIMAL_ODDS
+            price_quality = min(quote.decimal_odds, Decimal("10")) - MIN_COMBO_LEG_DECIMAL_ODDS
             score = (
                 probability * Decimal("55")
                 + edge * Decimal("250")

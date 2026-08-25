@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from collections.abc import Sequence
 from datetime import datetime
@@ -58,8 +59,11 @@ class BookmakerProvider(Protocol):
 class CompositeOddsProvider:
     """Fail-soft bookmaker adapter: try providers in order, keep daily automation alive."""
 
-    def __init__(self, providers: Sequence[BookmakerProvider]) -> None:
+    def __init__(
+        self, providers: Sequence[BookmakerProvider], *, provider_timeout_seconds: float = 12.0
+    ) -> None:
         self._providers = tuple(providers)
+        self._provider_timeout_seconds = provider_timeout_seconds
         self.source_name = "+".join(str(provider.source_name) for provider in self._providers)
         self.supported_market_keys = tuple(
             dict.fromkeys(
@@ -86,12 +90,16 @@ class CompositeOddsProvider:
         self, *, start_utc: datetime, end_utc: datetime
     ) -> tuple[tuple[CanonicalFixture, MarketOdds], ...]:
         last_error: BaseException | None = None
+        results: dict[UUID, tuple[CanonicalFixture, MarketOdds]] = {}
         for provider in self._providers:
             if not provider.available:
                 continue
             try:
-                pairs = await provider.list_market_fixtures(start_utc=start_utc, end_utc=end_utc)
-            except (httpx.HTTPError, RuntimeError, ValueError) as error:
+                pairs = await asyncio.wait_for(
+                    provider.list_market_fixtures(start_utc=start_utc, end_utc=end_utc),
+                    timeout=self._provider_timeout_seconds,
+                )
+            except (TimeoutError, httpx.HTTPError, RuntimeError, ValueError) as error:
                 last_error = error
                 logger.warning(
                     "Bookmaker provider failed; trying fallback",
@@ -102,7 +110,14 @@ class CompositeOddsProvider:
                 )
                 continue
             if pairs:
-                return pairs
+                results.update({fixture.id: (fixture, market) for fixture, market in pairs})
+        if results:
+            return tuple(
+                sorted(
+                    results.values(),
+                    key=lambda item: (item[0].kickoff_at, item[0].home_team, item[0].away_team),
+                )
+            )
         if last_error is not None:
             raise last_error
         return ()
@@ -168,8 +183,11 @@ class CompositeOddsProvider:
             if not provider.available:
                 continue
             try:
-                return await provider.wide_market_for(fixture_id)
-            except (KeyError, httpx.HTTPError, RuntimeError, ValueError):
+                return await asyncio.wait_for(
+                    provider.wide_market_for(fixture_id),
+                    timeout=self._provider_timeout_seconds,
+                )
+            except (TimeoutError, KeyError, httpx.HTTPError, RuntimeError, ValueError):
                 continue
         raise KeyError(str(fixture_id))
 

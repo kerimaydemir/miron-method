@@ -25,6 +25,7 @@ class CanonicalFixture(BaseModel):
         "odds_api_io",
         "rapidapi_football",
         "api_football",
+        "espn_core_odds",
     ] = "mock_fixture"
     provider_fixture_id: str | None = None
     status: Literal["scheduled", "live", "finished"] = "scheduled"

@@ -7,6 +7,7 @@ from app.infrastructure.composite_fixture_provider import (
     OddsFixtureProvider,
 )
 from app.infrastructure.composite_odds_provider import BookmakerProvider, CompositeOddsProvider
+from app.infrastructure.espn_core_odds_provider import EspnCoreOddsProvider
 from app.infrastructure.fallback_fixture_provider import FallbackFixtureProvider
 from app.infrastructure.football_data_org_provider import FootballDataOrgProvider
 from app.infrastructure.mock_fixture_provider import MockFixtureProvider
@@ -88,10 +89,21 @@ if settings.api_football_current_odds_enabled or (
             requests_per_minute=settings.API_FOOTBALL_REQUESTS_PER_MINUTE,
         )
     )
+if settings.ESPN_ODDS_ENABLED and settings.espn_soccer_leagues:
+    configured_odds_providers.append(
+        EspnCoreOddsProvider(
+            base_url=settings.ESPN_CORE_BASE_URL,
+            league_paths=settings.espn_soccer_leagues,
+            refresh_seconds=settings.ODDS_REFRESH_SECONDS,
+        )
+    )
 
 odds_provider: BookmakerProvider
 if len(configured_odds_providers) > 1:
-    odds_provider = CompositeOddsProvider(tuple(configured_odds_providers))
+    odds_provider = CompositeOddsProvider(
+        tuple(configured_odds_providers),
+        provider_timeout_seconds=settings.BOOKMAKER_PROVIDER_TIMEOUT_SECONDS,
+    )
 elif len(configured_odds_providers) == 1:
     odds_provider = configured_odds_providers[0]
 else:

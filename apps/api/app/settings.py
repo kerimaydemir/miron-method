@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     GEMINI_API_KEY: SecretStr = SecretStr("")
     GEMINI_API_BASE_URL: str = "https://generativelanguage.googleapis.com/v1beta"
     GEMINI_ENABLED: bool = False
-    GEMINI_ANALYSIS_TIMEOUT_SECONDS: int = Field(default=240, ge=30, le=900)
+    GEMINI_ANALYSIS_TIMEOUT_SECONDS: int = Field(default=600, ge=30, le=900)
     CONFIG_DIR: Path = Path("/workspace/config")
     LIVE_FIXTURES_ENABLED: bool = False
     OPENLIGADB_BASE_URL: str = "https://api.openligadb.de"
@@ -47,6 +47,7 @@ class Settings(BaseSettings):
     OPEN_METEO_FORECAST_BASE_URL: str = "https://api.open-meteo.com/v1"
     OPEN_METEO_GEOCODING_BASE_URL: str = "https://geocoding-api.open-meteo.com/v1"
     ESPN_ENABLED: bool = True
+    ESPN_ODDS_ENABLED: bool = True
     ESPN_BASE_URL: str = "https://site.api.espn.com/apis/site/v2/sports/soccer"
     ESPN_CORE_BASE_URL: str = "https://sports.core.api.espn.com/v2/sports/soccer"
     ESPN_SOCCER_LEAGUES: str = "eng.1,esp.1,ita.1,ger.1,fra.1,ned.1,por.1,tur.1,uefa.champions"
@@ -57,15 +58,20 @@ class Settings(BaseSettings):
     SCOREBAT_BASE_URL: str = "https://www.scorebat.com/video-api/v3"
     THE_ODDS_API_KEY: SecretStr = SecretStr("")
     THE_ODDS_API_BASE_URL: str = "https://api.the-odds-api.com/v4"
-    THE_ODDS_WIDE_MARKETS: str = "h2h,totals"
+    THE_ODDS_WIDE_MARKETS: str = (
+        "h2h,draw_no_bet,btts,totals,alternate_totals,team_totals,alternate_team_totals"
+    )
     ODDS_API_IO_KEY: SecretStr = SecretStr("")
     ODDS_API_IO_BASE_URL: str = "https://api.odds-api.io/v3"
     ODDS_API_IO_BOOKMAKERS: str = "Bet365,Unibet"
     ODDS_API_IO_EVENTS_PER_LEAGUE: int = Field(default=3, ge=1, le=10)
     ODDS_REFRESH_SECONDS: int = Field(default=300, ge=60, le=3_600)
-    AUTO_COUPON_WINDOW_DAYS: int = Field(default=1, ge=1, le=3)
+    BOOKMAKER_PROVIDER_TIMEOUT_SECONDS: int = Field(default=12, ge=3, le=60)
+    AUTO_COUPON_WINDOW_DAYS: int = Field(default=3, ge=1, le=3)
     AUTO_COUPON_REUSE_SECONDS: int = Field(default=21_600, ge=60, le=86_400)
     AUTO_COUPON_SETTLEMENT_SECONDS: int = Field(default=300, ge=60, le=3_600)
+    AUTO_COUPON_FINALIST_ANALYSIS_TIMEOUT_SECONDS: int = Field(default=600, ge=45, le=900)
+    AUTO_COUPON_REQUEST_TIMEOUT_SECONDS: int = Field(default=900, ge=180, le=1_800)
     AUTOMATION_TOKEN: SecretStr = SecretStr("")
     MONTHLY_BUDGET_USD: Decimal = Field(default=Decimal("10.00"), ge=0)
     RUN_SOFT_CAP_USD: Decimal = Field(default=Decimal("0.50"), ge=0)

@@ -7,6 +7,7 @@ from app.domain.auto_coupon import (
     TOP_LEAGUES,
     AutoCandidate,
     CouponSelection,
+    FunnelDecision,
     LeaguePolicy,
     MarketOdds,
     MarketQuote,
@@ -68,6 +69,46 @@ def test_deterministic_funnel_is_ten_to_five_to_three() -> None:
     assert len(critic.selected_fixture_ids) == 3
 
 
+def test_empty_gemini_funnel_falls_back_to_top_three_for_live_odds_day() -> None:
+    league = TOP_LEAGUES[1]
+    candidates = tuple(
+        AutoCandidate(
+            fixture=fixture("la1"),
+            league=league,
+            auto_score=90 - index,
+            memory_case_count=0,
+            positive_factors=("Güncel", "Canlı oran var"),
+            risk_flags=(),
+        )
+        for index in range(5)
+    )
+    rough = FunnelDecision(
+        stage="rough",
+        input_count=5,
+        selected_fixture_ids=(),
+        eliminated_fixture_ids=tuple(item.fixture.id for item in candidates),
+        rationale="Kaba elemede kanıt ve fiyat eşiğini geçen maç bulunmadı.",
+        model_id="gemini-test",
+    )
+    critic = FunnelDecision(
+        stage="critic",
+        input_count=0,
+        selected_fixture_ids=(),
+        eliminated_fixture_ids=(),
+        rationale="Kaba eleme boş kaldı.",
+        model_id="gemini-test",
+    )
+
+    fallback_rough, fallback_critic = AutoCouponService._deterministic_funnel_after_empty_gemini(
+        candidates, rough, critic
+    )
+
+    assert fallback_rough.selected_fixture_ids == tuple(item.fixture.id for item in candidates[:3])
+    assert fallback_critic.selected_fixture_ids == fallback_rough.selected_fixture_ids
+    assert fallback_critic.input_count == 3
+    assert "canlı odds olan günlerde sistem aday varken sessiz kalmaz" in fallback_critic.rationale
+
+
 def test_ticket_math_rejects_combined_coupon_below_seventy_percent() -> None:
     league = TOP_LEAGUES[1]
     selections = tuple(
@@ -95,6 +136,36 @@ def test_ticket_math_rejects_combined_coupon_below_seventy_percent() -> None:
     assert tickets[0].combined_probability == Decimal(".700000")
     assert tickets[0].combined_decimal_odds == Decimal("1.80")
     assert all(item.odds_source == "bookmaker_average" for item in tickets)
+
+
+def test_ticket_math_accepts_two_safe_legs_when_combined_price_reaches_gate() -> None:
+    league = TOP_LEAGUES[1]
+    selections = tuple(
+        CouponSelection(
+            fixture=fixture(f"la{index}"),
+            league=league,
+            analysis_run_id=uuid4(),
+            lock_id=uuid4(),
+            pick="home",
+            probability=Decimal(".84"),
+            model_fair_odds=Decimal("1.19"),
+            market_decimal_odds=odds,
+            market_fair_probability=Decimal(".74"),
+            edge=Decimal(".10"),
+            bookmaker_count=3,
+            price_observed_at=datetime(2026, 8, 22, 8, 0, tzinfo=UTC),
+            confidence=Decimal(".70"),
+            reason="Yüksek olasılıklı düşük oran kombine ayağı.",
+            uncertainty="Kadro bilgisi henüz doğrulanmadı.",
+        )
+        for index, odds in enumerate((Decimal("1.35"), Decimal("1.34")), start=1)
+    )
+
+    tickets = AutoCouponService._tickets(selections)
+
+    assert [item.kind for item in tickets] == ["double"]
+    assert tickets[0].combined_probability == Decimal(".705600")
+    assert tickets[0].combined_decimal_odds == Decimal("1.81")
 
 
 def test_ticket_math_fails_closed_without_bookmaker_odds() -> None:

@@ -76,6 +76,17 @@ sources:
       - team_totals
       - corners_spread
       - cards_spread
+  espn_core_odds:
+    role: no_key_public_odds_fallback
+    credential: none
+    required_for_auto_coupon: false
+    runtime_status: wired_bookmaker_provider_first_fallback
+    access_note: ESPN Core public JSON odds are no-key and fast, but usually single-bookmaker US odds; use as fallback market context, not bet placement.
+    stages: [S13, S14, S21]
+    markets:
+      - h2h
+      - totals
+      - spread
   google_gemini_search:
     role: current_official_news_and_cross_check
     credential: GEMINI_API_KEY

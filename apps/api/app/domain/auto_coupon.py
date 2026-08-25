@@ -26,7 +26,13 @@ MarketKey = Literal[
 ]
 
 
-BookmakerSource = Literal["the_odds_api", "odds_api_io", "rapidapi_football", "api_football"]
+BookmakerSource = Literal[
+    "the_odds_api",
+    "odds_api_io",
+    "rapidapi_football",
+    "api_football",
+    "espn_core_odds",
+]
 
 
 class MarketQuote(BaseModel):
@@ -159,6 +165,7 @@ def league_for_fixture(fixture: CanonicalFixture) -> LeaguePolicy | None:
             or fixture.competition_key == f"oddsapiio:{_ODDS_API_IO_LEAGUE_SLUGS[league.key]}"
             or fixture.competition_key.startswith(f"rapidapi:{league.key}:")
             or fixture.competition_key.startswith(f"api-football:{league.key}:")
+            or fixture.competition_key.startswith(f"espn-core:{league.key}:")
         ):
             return league
     return None

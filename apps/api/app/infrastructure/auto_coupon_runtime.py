@@ -47,6 +47,7 @@ auto_coupon_service = AutoCouponService(
     live_fixtures_available=settings.LIVE_FIXTURES_ENABLED,
     window_days=settings.AUTO_COUPON_WINDOW_DAYS,
     reuse_seconds=settings.AUTO_COUPON_REUSE_SECONDS,
+    finalist_analysis_timeout_seconds=settings.AUTO_COUPON_FINALIST_ANALYSIS_TIMEOUT_SECONDS,
 )
 
 _stop_event: asyncio.Event | None = None

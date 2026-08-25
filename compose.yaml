@@ -195,6 +195,7 @@ services:
       API_FOOTBALL_CURRENT_ODDS_ENABLED: "false"
       SPORTMONKS_API_KEY: ""
       ESPN_ENABLED: "false"
+      ESPN_ODDS_ENABLED: "false"
       THESPORTSDB_API_KEY: ""
       THESPORTSDB_ENABLED: "false"
       RAPIDAPI_KEY: ""

@@ -1,6 +1,7 @@
 import asyncio
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from typing import Protocol
 from uuid import UUID
 
@@ -119,7 +120,10 @@ class CompositeAnalysisFixtureProvider:
             )
         except (KeyError, *self._transient_provider_errors):
             pass
-        return await self._base.features_for(fixture)
+        try:
+            return await self._base.features_for(fixture)
+        except (KeyError, *self._transient_provider_errors):
+            return self._degraded_features(fixture)
 
     async def refresh_result(self, fixture_id: UUID) -> CanonicalFixture:
         try:
@@ -133,3 +137,21 @@ class CompositeAnalysisFixtureProvider:
             if isinstance(self._base, OpenLigaDbProvider):
                 await self._base.refresh(force=True)
             return await self._base.get_fixture(fixture_id)
+
+    @staticmethod
+    def _degraded_features(fixture: CanonicalFixture) -> TriageFactors:
+        del fixture
+        return TriageFactors(
+            coverage_score=Decimal(".58"),
+            source_freshness_score=Decimal(".70"),
+            competitive_relevance_score=Decimal(".70"),
+            model_information_gain_score=Decimal(".55"),
+            market_coverage_score=Decimal(".60"),
+            lineup_uncertainty_resolvability=Decimal(".35"),
+            user_interest_score=Decimal(".55"),
+            historical_case_support=Decimal(".30"),
+            kickoff_time_practicality=Decimal(".70"),
+            estimated_cost_penalty=Decimal(".10"),
+            unresolved_identity_penalty=Decimal(".10"),
+            stale_data_penalty=Decimal(".05"),
+        )

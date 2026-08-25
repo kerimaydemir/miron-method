@@ -36,6 +36,12 @@ providers:
     approval_status: user_requested_free_read_only_market_data
     allowed_methods: [GET]
     forbidden_actions: [bet_placement, account_automation, restricted_scraping]
+  espn_core_odds:
+    provider_type: odds
+    enabled: true
+    approval_status: no_key_public_json_odds_context
+    allowed_methods: [GET]
+    forbidden_actions: [bet_placement, account_automation, restricted_scraping]
   api_football:
     provider_type: deep_football_evidence
     enabled: true

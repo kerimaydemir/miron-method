@@ -30,7 +30,7 @@ async def create_auto_coupon(
     try:
         return await asyncio.wait_for(
             auto_coupon_service.create(idempotency_key=idempotency_key),
-            timeout=180,
+            timeout=settings.AUTO_COUPON_REQUEST_TIMEOUT_SECONDS,
         )
     except TimeoutError as error:
         raise HTTPException(
@@ -117,6 +117,32 @@ async def run_daily_automation(
             ],
             "selection_count": len(run.selections),
             "ticket_count": len(run.tickets),
+            "tickets": [
+                {
+                    "kind": ticket.kind,
+                    "label": ticket.label,
+                    "combined_probability": str(ticket.combined_probability),
+                    "combined_decimal_odds": str(ticket.combined_decimal_odds),
+                    "risk_label": ticket.risk_label,
+                    "legs": [
+                        {
+                            "fixture": f"{selection.fixture.home_team} - {selection.fixture.away_team}",
+                            "league": selection.league.name,
+                            "market": selection.market_label,
+                            "pick": selection.outcome_label,
+                            "probability": str(selection.probability),
+                            "odds": str(selection.market_decimal_odds)
+                            if selection.market_decimal_odds is not None
+                            else None,
+                            "reason": selection.reason,
+                        }
+                        for fixture_id in ticket.selection_fixture_ids
+                        for selection in run.selections
+                        if selection.fixture.id == fixture_id
+                    ],
+                }
+                for ticket in run.tickets
+            ],
             "notice": run.notice,
         }
     settled = await auto_coupon_service.settle_pending()
