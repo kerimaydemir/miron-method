@@ -72,6 +72,9 @@ after a Gemini error. See
 - GitHub Actions daily pre-match/post-match cycle that runs the Docker stack on
   the runner and persists encrypted PostgreSQL/report state on the `automation-state`
   branch
+- private Telegram bot notification for daily coupons and next-day learning summaries
+  when `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` repository secrets are configured
 
 Use `make quality` for the complete containerized quality gate. Operational checks
 are documented in [`docs/runbooks/local-pilot.md`](./docs/runbooks/local-pilot.md).
+Telegram setup is documented in [`docs/runbooks/telegram-bot.md`](./docs/runbooks/telegram-bot.md).

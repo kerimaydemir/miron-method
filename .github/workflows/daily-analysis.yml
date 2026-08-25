@@ -192,6 +192,8 @@ jobs:
         env:
           PHASE: ${{ steps.phase.outputs.phase }}
           AUTOMATION_TOKEN: ${{ secrets.MIRON_BABA_AUTOMATION_TOKEN }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
           set -euo pipefail
           mkdir -p reports
@@ -204,6 +206,11 @@ jobs:
             echo "### MIRON BABA ${PHASE}"
             jq -r '"phase=\(.phase) day=\(.day) daily_predictions=\(.daily_prediction_count // 0) selections=\(.selection_count // 0) tickets=\(.ticket_count // 0) settled=\(.settled_count // 0) daily_reviewed=\(.daily_reviewed_count // 0) notice=\(.notice // "ok")"' "reports/${PHASE}.json"
           } >> "$GITHUB_STEP_SUMMARY"
+          docker compose exec -T \
+            -e TELEGRAM_BOT_TOKEN \
+            -e TELEGRAM_CHAT_ID \
+            api sh -c 'cat > /tmp/miron-telegram-report.json && python scripts/telegram_notify.py /tmp/miron-telegram-report.json' \
+            < "reports/${PHASE}.json"
 
       - name: Dump and encrypt state
         env:
