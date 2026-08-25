@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 from decimal import ROUND_HALF_UP, Decimal
-from typing import NamedTuple, Protocol, cast
-from uuid import UUID
+from typing import Any, NamedTuple, Protocol, cast
+from uuid import NAMESPACE_URL, UUID, uuid5
 
 from sqlalchemy import Engine, create_engine, text
 
@@ -11,7 +11,7 @@ from app.domain.auto_coupon import (
     CalibrationBand,
     MarketPerformance,
 )
-from app.infrastructure.analysis_repository import canonical_json
+from app.infrastructure.analysis_repository import canonical_json, sha256_text
 
 
 class PendingSelection(NamedTuple):
@@ -40,7 +40,7 @@ class AutoCouponRepository(Protocol):
         auto_run_id: UUID,
         fixture_id: UUID,
         status: str,
-        autopsy_id: UUID,
+        autopsy_id: UUID | None,
         home_score: int,
         away_score: int,
         post_match: dict[str, object],
@@ -87,7 +87,7 @@ class NullAutoCouponRepository:
         auto_run_id: UUID,
         fixture_id: UUID,
         status: str,
-        autopsy_id: UUID,
+        autopsy_id: UUID | None,
         home_score: int,
         away_score: int,
         post_match: dict[str, object],
@@ -164,6 +164,8 @@ class PostgresAutoCouponRepository:
             )
             if not run.selections:
                 return
+            self._ensure_fixture_refs(connection, run)
+            self._ensure_forced_analysis_refs(connection, run)
             connection.execute(
                 text("""
                 INSERT INTO coupon_selections (
@@ -207,6 +209,207 @@ class PostgresAutoCouponRepository:
                     }
                     for item in run.selections
                 ],
+            )
+
+    @staticmethod
+    def _ensure_fixture_refs(connection: Any, run: AutoCouponRun) -> None:
+        sport_id = UUID("92e3fa97-f0c3-5298-83f7-1bf958ad4879")
+        connection.execute(
+            text("""
+            INSERT INTO sports (id, sport_key, plugin_key)
+            VALUES (:id, 'football', 'football.v1')
+            ON CONFLICT (sport_key) DO NOTHING
+            """),
+            {"id": sport_id},
+        )
+        for item in run.selections:
+            competition_id = uuid5(
+                NAMESPACE_URL,
+                f"miron-baba-ai:competition:{item.fixture.competition_key}",
+            )
+            home_team_id = uuid5(
+                NAMESPACE_URL,
+                f"miron-baba-ai:team:{item.fixture.source_provider}:{item.fixture.home_team}",
+            )
+            away_team_id = uuid5(
+                NAMESPACE_URL,
+                f"miron-baba-ai:team:{item.fixture.source_provider}:{item.fixture.away_team}",
+            )
+            connection.execute(
+                text("""
+                INSERT INTO competitions (id, sport_id, competition_key, name)
+                VALUES (:id, :sport_id, :competition_key, :name)
+                ON CONFLICT (sport_id, competition_key)
+                DO UPDATE SET name = EXCLUDED.name, updated_at = now()
+                """),
+                {
+                    "id": competition_id,
+                    "sport_id": sport_id,
+                    "competition_key": item.fixture.competition_key,
+                    "name": item.fixture.competition_name,
+                },
+            )
+            connection.execute(
+                text("""
+                INSERT INTO teams (id, sport_id, name)
+                VALUES (:id, :sport_id, :name)
+                ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, updated_at = now()
+                """),
+                [
+                    {"id": home_team_id, "sport_id": sport_id, "name": item.fixture.home_team},
+                    {"id": away_team_id, "sport_id": sport_id, "name": item.fixture.away_team},
+                ],
+            )
+            connection.execute(
+                text("""
+                INSERT INTO fixtures (
+                  id, sport_id, competition_id, home_team_id, away_team_id,
+                  kickoff_at, status
+                ) VALUES (
+                  :id, :sport_id, :competition_id, :home_team_id, :away_team_id,
+                  :kickoff_at, :status
+                ) ON CONFLICT (id) DO UPDATE SET
+                  competition_id = EXCLUDED.competition_id,
+                  home_team_id = EXCLUDED.home_team_id,
+                  away_team_id = EXCLUDED.away_team_id,
+                  kickoff_at = EXCLUDED.kickoff_at,
+                  status = EXCLUDED.status,
+                  updated_at = now(),
+                  row_version = fixtures.row_version + 1
+                """),
+                {
+                    "id": item.fixture.id,
+                    "sport_id": sport_id,
+                    "competition_id": competition_id,
+                    "home_team_id": home_team_id,
+                    "away_team_id": away_team_id,
+                    "kickoff_at": item.fixture.kickoff_at,
+                    "status": item.fixture.status,
+                },
+            )
+            connection.execute(
+                text("""
+                INSERT INTO fixture_versions (
+                  fixture_id, version, kickoff_at, status, observed_at
+                ) VALUES (:fixture_id, 1, :kickoff_at, :status, :observed_at)
+                ON CONFLICT (fixture_id, version) DO UPDATE SET
+                  kickoff_at = EXCLUDED.kickoff_at,
+                  status = EXCLUDED.status,
+                  observed_at = EXCLUDED.observed_at
+                """),
+                {
+                    "fixture_id": item.fixture.id,
+                    "kickoff_at": item.fixture.kickoff_at,
+                    "status": item.fixture.status,
+                    "observed_at": item.fixture.observed_at or run.observed_at,
+                },
+            )
+
+    @staticmethod
+    def _ensure_forced_analysis_refs(connection: Any, run: AutoCouponRun) -> None:
+        config = {
+            "schema_version": "config-snapshot.v1",
+            "mode": "forced_daily_banko",
+            "model_ids": ["market-journal-forced"],
+        }
+        config_json = canonical_json(config)
+        config_sha256 = sha256_text(config_json)
+        config_snapshot_id = uuid5(NAMESPACE_URL, f"miron-baba-ai:config:{config_sha256}")
+        connection.execute(
+            text("""
+            INSERT INTO config_snapshots (id, schema_version, config_json, sha256)
+            VALUES (:id, 'config-snapshot.v1', CAST(:payload AS jsonb), :sha256)
+            ON CONFLICT DO NOTHING
+            """),
+            {"id": config_snapshot_id, "payload": config_json, "sha256": config_sha256},
+        )
+        for item in run.selections:
+            forecast_id = uuid5(
+                NAMESPACE_URL, f"miron-baba-ai:forced-forecast:{item.analysis_run_id}"
+            )
+            forecast_json = canonical_json(
+                {
+                    "fixture_id": str(item.fixture.id),
+                    "market_key": item.market_key,
+                    "pick": item.pick,
+                    "probability": str(item.probability),
+                    "market_decimal_odds": str(item.market_decimal_odds),
+                    "mode": "forced_daily_banko",
+                }
+            )
+            manifest_json = canonical_json(
+                {
+                    "analysis_run_id": str(item.analysis_run_id),
+                    "fixture_id": str(item.fixture.id),
+                    "lock_id": str(item.lock_id),
+                    "pick": item.pick,
+                    "mode": "forced_daily_banko",
+                }
+            )
+            manifest_sha256 = sha256_text(manifest_json)
+            connection.execute(
+                text("""
+                INSERT INTO analysis_runs (
+                  id, fixture_id, state, cutoff_at, kickoff_at_snapshot,
+                  config_snapshot_id, prompt_bundle_version, actual_cost_usd,
+                  correlation_id, created_at, updated_at
+                ) VALUES (
+                  :id, :fixture_id, 'LOCKED', :cutoff_at, :kickoff_at,
+                  :config_id, 'forced-daily-banko.v1', 0,
+                  :correlation_id, :created_at, :created_at
+                ) ON CONFLICT (id) DO NOTHING
+                """),
+                {
+                    "id": item.analysis_run_id,
+                    "fixture_id": item.fixture.id,
+                    "cutoff_at": run.observed_at,
+                    "kickoff_at": item.fixture.kickoff_at,
+                    "config_id": config_snapshot_id,
+                    "correlation_id": uuid5(
+                        NAMESPACE_URL,
+                        f"miron-baba-ai:forced-correlation:{run.run_id}:{item.fixture.id}",
+                    ),
+                    "created_at": run.observed_at,
+                },
+            )
+            connection.execute(
+                text("""
+                INSERT INTO forecast_versions (
+                  id, analysis_run_id, version, forecast_json, forecast_sha256
+                ) VALUES (
+                  :id, :run_id, 1, CAST(:forecast AS jsonb), :sha256
+                ) ON CONFLICT DO NOTHING
+                """),
+                {
+                    "id": forecast_id,
+                    "run_id": item.analysis_run_id,
+                    "forecast": forecast_json,
+                    "sha256": sha256_text(forecast_json),
+                },
+            )
+            connection.execute(
+                text("""
+                INSERT INTO prediction_locks (
+                  id, analysis_run_id, forecast_version_id, cutoff_at,
+                  locked_at, kickoff_at_snapshot, manifest_json,
+                  manifest_sha256, object_uri
+                ) VALUES (
+                  :id, :run_id, :forecast_id, :cutoff_at,
+                  :locked_at, :kickoff_at, CAST(:manifest AS jsonb),
+                  :sha256, :object_uri
+                ) ON CONFLICT (id) DO NOTHING
+                """),
+                {
+                    "id": item.lock_id,
+                    "run_id": item.analysis_run_id,
+                    "forecast_id": forecast_id,
+                    "cutoff_at": run.observed_at,
+                    "locked_at": run.observed_at,
+                    "kickoff_at": item.fixture.kickoff_at,
+                    "manifest": manifest_json,
+                    "sha256": manifest_sha256,
+                    "object_uri": f"forced://daily-banko/{item.lock_id}",
+                },
             )
 
     def load(self, run_id: UUID) -> AutoCouponRun | None:
@@ -314,7 +517,7 @@ class PostgresAutoCouponRepository:
         auto_run_id: UUID,
         fixture_id: UUID,
         status: str,
-        autopsy_id: UUID,
+        autopsy_id: UUID | None,
         home_score: int,
         away_score: int,
         post_match: dict[str, object],

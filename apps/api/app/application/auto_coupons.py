@@ -116,6 +116,9 @@ class AutoCouponService:
         window_days: int,
         reuse_seconds: int,
         finalist_analysis_timeout_seconds: int = 240,
+        force_daily_ticket: bool = True,
+        forced_min_combined_odds: Decimal = Decimal("1.80"),
+        forced_max_combined_odds: Decimal = Decimal("2.20"),
     ) -> None:
         self._fixtures = fixtures
         self._analysis_fixtures = analysis_fixtures
@@ -128,6 +131,9 @@ class AutoCouponService:
         self._window_days = window_days
         self._reuse_interval = timedelta(seconds=reuse_seconds)
         self._finalist_analysis_timeout_seconds = finalist_analysis_timeout_seconds
+        self._force_daily_ticket = force_daily_ticket
+        self._forced_min_combined_odds = forced_min_combined_odds
+        self._forced_max_combined_odds = forced_max_combined_odds
 
     async def create(self, *, idempotency_key: str) -> AutoCouponRun:
         if not self._odds.available and (
@@ -179,6 +185,39 @@ class AutoCouponService:
         if not initial:
             raise ValueError("AUTO_COUPON_NO_CURRENT_TOP_LEAGUE_FIXTURES")
         daily_predictions = self._daily_predictions(run_id, initial, markets, now)
+        if self._force_daily_ticket and markets and len(initial) >= 2:
+            forced_selections, forced_tickets = self._forced_daily_coupon(
+                run_id, initial, markets, now
+            )
+            if forced_tickets:
+                rough, critic = self._deterministic_funnel(initial)
+                auto_run = AutoCouponRun(
+                    run_id=run_id,
+                    state="completed",
+                    source_mode=source_mode,
+                    observed_at=now,
+                    covered_league_keys=tuple(dict.fromkeys(item.league.key for item in initial)),
+                    initial_candidates=initial,
+                    rough_decision=rough,
+                    critic_decision=critic,
+                    daily_predictions=daily_predictions,
+                    selections=forced_selections,
+                    tickets=forced_tickets,
+                    rag_case_count=len(memory_context),
+                    actual_cost_usd=Decimal("0"),
+                    notice=self._run_notice(
+                        source_mode=source_mode,
+                        finalist_analysis_timed_out=False,
+                        has_ordered=True,
+                        has_tickets=True,
+                        forced_daily_ticket=True,
+                    ),
+                )
+                if refresh_existing_journal:
+                    self._repository.update_run(auto_run)
+                else:
+                    self._repository.save(auto_run)
+                return auto_run
         if markets:
             try:
                 rough, critic, funnel_cost = await asyncio.wait_for(
@@ -305,6 +344,14 @@ class AutoCouponService:
             )
         )
         tickets = self._tickets(ordered_candidates)
+        forced_daily_ticket = False
+        if not tickets and self._force_daily_ticket and markets and len(initial) >= 2:
+            forced_selections, tickets = self._forced_daily_coupon(
+                run_id, initial, markets, now
+            )
+            if tickets:
+                ordered_candidates = forced_selections
+                forced_daily_ticket = True
         ticketed_fixture_ids = {
             fixture_id for ticket in tickets for fixture_id in ticket.selection_fixture_ids
         }
@@ -327,17 +374,12 @@ class AutoCouponService:
             actual_cost_usd=(funnel_cost + analysis_cost).quantize(
                 Decimal(".000001"), rounding=ROUND_HALF_UP
             ),
-            notice=(
-                "Bugün canlı bookmaker oranı alınamadı; sistem oran uydurmadı, sadece "
-                "büyük lig fixture jurnalini kaydetti."
-                if source_mode == "fixture_live_no_odds"
-                else "Derin finalist analizi süre sınırına takıldı; günlük jurnal kaydedildi, "
-                "kota doldurmak için kör kupon üretilmedi."
-                if finalist_analysis_timed_out and not ordered
-                else "Bugün kanıt, fiyat ve belirsizlik eşiklerini birlikte geçen seçim yok; "
-                "sistem kota doldurmak için kupon üretmedi."
-                if not tickets
-                else "Olasılıksal seçimdir; kesinlik veya bahis tavsiyesi değildir."
+            notice=self._run_notice(
+                source_mode=source_mode,
+                finalist_analysis_timed_out=finalist_analysis_timed_out,
+                has_ordered=bool(ordered),
+                has_tickets=bool(tickets),
+                forced_daily_ticket=forced_daily_ticket,
             ),
         )
         if refresh_existing_journal:
@@ -345,6 +387,38 @@ class AutoCouponService:
         else:
             self._repository.save(auto_run)
         return auto_run
+
+    @staticmethod
+    def _run_notice(
+        *,
+        source_mode: Literal["bookmaker_live", "fixture_live_no_odds"],
+        finalist_analysis_timed_out: bool,
+        has_ordered: bool,
+        has_tickets: bool,
+        forced_daily_ticket: bool,
+    ) -> str:
+        if source_mode == "fixture_live_no_odds":
+            return (
+                "Bugün canlı bookmaker oranı alınamadı; sistem oran uydurmadı, sadece "
+                "büyük lig fixture jurnalini kaydetti."
+            )
+        if forced_daily_ticket:
+            return (
+                "Strict %70+ değer kapısından seçim çıkmadı; sezon/maç akışı aktif olduğu "
+                "için gerçek oranlardan zorunlu günlük banko kupon üretildi. Bu forced mod "
+                "%70 garanti iddiası değildir."
+            )
+        if finalist_analysis_timed_out and not has_ordered:
+            return (
+                "Derin finalist analizi süre sınırına takıldı; günlük jurnal kaydedildi, "
+                "kota doldurmak için kör kupon üretilmedi."
+            )
+        if not has_tickets:
+            return (
+                "Bugün kanıt, fiyat ve belirsizlik eşiklerini birlikte geçen seçim yok; "
+                "forced kupon için de en az iki ayrı gerçek oranlı maç bulunamadı."
+            )
+        return "Olasılıksal seçimdir; kesinlik veya bahis tavsiyesi değildir."
 
     def _is_reusable(self, run: AutoCouponRun, now: datetime) -> bool:
         return (
@@ -461,38 +535,66 @@ class AutoCouponService:
             try:
                 lock = self._analysis.get_lock(pending.lock_id)
             except KeyError:
-                continue
-            autopsy = self._post_match.ingest(
-                lock,
-                MatchResult(
-                    fixture_id=fixture.id,
+                actual = result_outcome(
+                    MatchResult(
+                        fixture_id=fixture.id,
+                        home_score=fixture.home_score,
+                        away_score=fixture.away_score,
+                        observed_at=fixture.observed_at or datetime.now(UTC),
+                        source=fixture.source_provider,
+                    )
+                )
+                settlement_status = self._settlement_status(pending.pick, fixture, actual)
+                self._repository.mark_settled(
+                    auto_run_id=pending.auto_run_id,
+                    fixture_id=pending.fixture_id,
+                    status=settlement_status,
+                    autopsy_id=None,
                     home_score=fixture.home_score,
                     away_score=fixture.away_score,
-                    observed_at=fixture.observed_at or datetime.now(UTC),
-                    source=fixture.source_provider,
-                ),
-            )
-            actual = result_outcome(autopsy.result)
-            settlement_status = self._settlement_status(pending.pick, fixture, actual)
-            self._repository.mark_settled(
-                auto_run_id=pending.auto_run_id,
-                fixture_id=pending.fixture_id,
-                status=settlement_status,
-                autopsy_id=autopsy.autopsy_id,
-                home_score=fixture.home_score,
-                away_score=fixture.away_score,
-                post_match={
-                    "autopsy_id": str(autopsy.autopsy_id),
-                    "result_verdict": autopsy.result_verdict,
-                    "process_verdict": autopsy.process_verdict,
-                    "predicted_outcome": autopsy.predicted_outcome,
-                    "realized_outcome": autopsy.realized_outcome,
-                    "brier_score": str(autopsy.brier_score),
-                    "explanation": autopsy.post_match_explanation,
-                    "variance": [item.model_dump(mode="json") for item in autopsy.variance],
-                    "lesson": autopsy.lesson.model_dump(mode="json"),
-                },
-            )
+                    post_match={
+                        "autopsy_id": None,
+                        "result_verdict": settlement_status,
+                        "process_verdict": "forced_daily_score_settlement",
+                        "realized_outcome": actual,
+                        "explanation": (
+                            "Forced günlük kupon derin lock üretmediği için settlement doğrudan "
+                            "maç skoru ve pazar kuralıyla yapıldı."
+                        ),
+                    },
+                )
+            else:
+                autopsy = self._post_match.ingest(
+                    lock,
+                    MatchResult(
+                        fixture_id=fixture.id,
+                        home_score=fixture.home_score,
+                        away_score=fixture.away_score,
+                        observed_at=fixture.observed_at or datetime.now(UTC),
+                        source=fixture.source_provider,
+                    ),
+                )
+                actual = result_outcome(autopsy.result)
+                settlement_status = self._settlement_status(pending.pick, fixture, actual)
+                self._repository.mark_settled(
+                    auto_run_id=pending.auto_run_id,
+                    fixture_id=pending.fixture_id,
+                    status=settlement_status,
+                    autopsy_id=autopsy.autopsy_id,
+                    home_score=fixture.home_score,
+                    away_score=fixture.away_score,
+                    post_match={
+                        "autopsy_id": str(autopsy.autopsy_id),
+                        "result_verdict": autopsy.result_verdict,
+                        "process_verdict": autopsy.process_verdict,
+                        "predicted_outcome": autopsy.predicted_outcome,
+                        "realized_outcome": autopsy.realized_outcome,
+                        "brier_score": str(autopsy.brier_score),
+                        "explanation": autopsy.post_match_explanation,
+                        "variance": [item.model_dump(mode="json") for item in autopsy.variance],
+                        "lesson": autopsy.lesson.model_dump(mode="json"),
+                    },
+                )
             settled += 1
         return settled
 
@@ -1374,6 +1476,193 @@ class AutoCouponService:
         if quote.point is not None:
             parts.append(str(quote.point))
         return " ".join(item for item in parts if item)
+
+    def _forced_daily_coupon(
+        self,
+        run_id: UUID,
+        candidates: tuple[AutoCandidate, ...],
+        markets: dict[UUID, MarketOdds],
+        now: datetime,
+    ) -> tuple[tuple[CouponSelection, ...], tuple[CouponTicket, ...]]:
+        leg_pool: list[tuple[Decimal, AutoCandidate, MarketQuote, Decimal, Decimal]] = []
+        for candidate in candidates:
+            market = markets.get(candidate.fixture.id)
+            if market is None:
+                continue
+            for quote in market.quotes:
+                if now - quote.observed_at > timedelta(hours=24):
+                    continue
+                if quote.bookmaker_count < 1 or not self._settleable_market(quote.market_key):
+                    continue
+                if quote.decimal_odds < Decimal("1.18") or quote.decimal_odds > Decimal("2.05"):
+                    continue
+                probability = self._journal_probability(candidate, quote)
+                edge = probability - quote.fair_probability
+                target_leg_price = Decimal("1.37")
+                price_penalty = abs(quote.decimal_odds - target_leg_price) * Decimal("8")
+                safety_bonus = Decimal("8") if quote.decimal_odds <= Decimal("1.55") else Decimal("0")
+                score = (
+                    probability * Decimal("100")
+                    + self._market_depth_bonus(quote.market_key) * Decimal("1.2")
+                    + safety_bonus
+                    + Decimal(min(quote.bookmaker_count, 6))
+                    - price_penalty
+                ).quantize(Decimal(".01"), rounding=ROUND_HALF_UP)
+                leg_pool.append((score, candidate, quote, probability, edge))
+        if len({item[1].fixture.id for item in leg_pool}) < 2:
+            return (), ()
+
+        viable_pairs: list[
+            tuple[
+                Decimal,
+                Decimal,
+                Decimal,
+                tuple[Decimal, AutoCandidate, MarketQuote, Decimal, Decimal],
+                tuple[Decimal, AutoCandidate, MarketQuote, Decimal, Decimal],
+            ]
+        ] = []
+        fallback_pairs: list[
+            tuple[
+                Decimal,
+                Decimal,
+                Decimal,
+                tuple[Decimal, AutoCandidate, MarketQuote, Decimal, Decimal],
+                tuple[Decimal, AutoCandidate, MarketQuote, Decimal, Decimal],
+            ]
+        ] = []
+        for left_index, left in enumerate(leg_pool):
+            for right in leg_pool[left_index + 1 :]:
+                if left[1].fixture.id == right[1].fixture.id:
+                    continue
+                combined_odds = left[2].decimal_odds * right[2].decimal_odds
+                if combined_odds < self._forced_min_combined_odds:
+                    continue
+                combined_probability = left[3] * right[3]
+                target_odds = (self._forced_min_combined_odds + Decimal(".07")).quantize(
+                    Decimal(".01"), rounding=ROUND_HALF_UP
+                )
+                closeness_penalty = abs(combined_odds - target_odds) * Decimal("12")
+                score = (
+                    combined_probability * Decimal("160")
+                    + left[0]
+                    + right[0]
+                    - closeness_penalty
+                ).quantize(Decimal(".01"), rounding=ROUND_HALF_UP)
+                pair = (score, combined_probability, combined_odds, left, right)
+                if combined_odds <= self._forced_max_combined_odds:
+                    viable_pairs.append(pair)
+                else:
+                    fallback_pairs.append(pair)
+        pair_pool = viable_pairs or fallback_pairs
+        if not pair_pool:
+            return (), ()
+        _, combined_probability, combined_odds, left, right = max(
+            pair_pool, key=lambda item: item[0]
+        )
+        selections = tuple(
+            self._forced_selection(run_id, candidate, quote, probability, edge, now)
+            for _, candidate, quote, probability, edge in (left, right)
+        )
+        ticket = CouponTicket(
+            kind="double",
+            label="Zorunlu günlük banko ikilisi",
+            selection_fixture_ids=tuple(item.fixture.id for item in selections),
+            combined_probability=combined_probability.quantize(
+                Decimal(".000001"), rounding=ROUND_HALF_UP
+            ),
+            combined_decimal_odds=combined_odds.quantize(
+                Decimal(".01"), rounding=ROUND_HALF_UP
+            ),
+            odds_source="bookmaker_average",
+            risk_label="orta" if combined_probability >= Decimal(".55") else "yüksek",
+        )
+        return selections, (ticket,)
+
+    def _forced_selection(
+        self,
+        run_id: UUID,
+        candidate: AutoCandidate,
+        quote: MarketQuote,
+        probability: Decimal,
+        edge: Decimal,
+        now: datetime,
+    ) -> CouponSelection:
+        pick = self._pick_key(quote)
+        analysis_run_id = uuid5(
+            NAMESPACE_URL,
+            f"miron-baba-ai:forced-analysis:{run_id}:{candidate.fixture.id}:{pick}",
+        )
+        lock_id = uuid5(
+            NAMESPACE_URL,
+            f"miron-baba-ai:forced-lock:{run_id}:{candidate.fixture.id}:{pick}",
+        )
+        model_fair_odds = (Decimal("1") / probability).quantize(
+            Decimal(".01"), rounding=ROUND_HALF_UP
+        )
+        value_score = (
+            probability * Decimal("70")
+            + self._market_depth_bonus(quote.market_key) * Decimal("2")
+            + min(quote.decimal_odds, Decimal("2.20")) * Decimal("5")
+        ).quantize(Decimal(".01"), rounding=ROUND_HALF_UP)
+        return CouponSelection(
+            fixture=candidate.fixture,
+            league=candidate.league,
+            analysis_run_id=analysis_run_id,
+            lock_id=lock_id,
+            pick=pick,
+            market_key=quote.market_key,
+            market_label=quote.market_label,
+            outcome_label=self._selection_label(quote),
+            market_description=quote.description,
+            line=quote.point,
+            probability=probability,
+            model_fair_odds=model_fair_odds,
+            market_decimal_odds=quote.decimal_odds,
+            market_fair_probability=quote.fair_probability,
+            edge=edge,
+            bookmaker_count=quote.bookmaker_count,
+            price_observed_at=quote.observed_at,
+            confidence=min(Decimal(".72"), Decimal(".42") + probability / Decimal("3")),
+            value_score=value_score,
+            reason=(
+                "Zorunlu günlük banko modu: strict değer kapısı boş kaldığı için gerçek "
+                f"oranlı {quote.market_label} / {self._selection_label(quote)} bacağı seçildi; "
+                f"piyasa-temelli olasılık %{(probability * 100).quantize(Decimal('.1'))}."
+            ),
+            uncertainty=(
+                "Forced mod %70 garanti iddiası değildir; maç önü haber, kadro ve piyasa "
+                "kayması kapanışa kadar yeniden kontrol edilmelidir."
+            ),
+            rationale=DecisionRationale(
+                market_thesis=(
+                    "Strict model kuponu çıkmadığında günlük süreklilik için en güvenli "
+                    "gerçek oranlı bacaklardan biri seçildi."
+                ),
+                supporting_evidence=(
+                    f"{candidate.league.name} izin listesinde",
+                    f"{quote.bookmaker_count} bookmaker/provider gerçek oranı",
+                    f"Aday skoru {candidate.auto_score}/100",
+                ),
+                counter_evidence=(
+                    "Strict %70+ değer kapısı geçilmedi",
+                    "Bu forced seçim bağımsız derin model kilidi değil, piyasa-temelli günlük kupondur",
+                ),
+                price_rationale=(
+                    f"Kilit anı oranı {quote.decimal_odds}; marjı temizlenmiş piyasa "
+                    f"olasılığı %{(quote.fair_probability * 100).quantize(Decimal('.1'))}."
+                ),
+                invalidation_conditions=(
+                    "Kadro veya sakatlık haberi ters yönde değişirse",
+                    "Oran hedef bandın dışına sert kayarsa",
+                    "Provider kimliği veya maç eşleşmesi sonradan uyuşmazlık gösterirse",
+                ),
+                model_disagreement=(
+                    f"Forced edge %{(edge * 100).quantize(Decimal('.1'))}; strict değer "
+                    "kanıtı sayılmaz."
+                ),
+                evidence_cutoff_at=now,
+            ),
+        )
 
     @staticmethod
     def _tickets(selections: tuple[CouponSelection, ...]) -> tuple[CouponTicket, ...]:

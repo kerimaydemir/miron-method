@@ -66,12 +66,15 @@ class Settings(BaseSettings):
     ODDS_API_IO_BOOKMAKERS: str = "Bet365,Unibet"
     ODDS_API_IO_EVENTS_PER_LEAGUE: int = Field(default=3, ge=1, le=10)
     ODDS_REFRESH_SECONDS: int = Field(default=300, ge=60, le=3_600)
-    BOOKMAKER_PROVIDER_TIMEOUT_SECONDS: int = Field(default=12, ge=3, le=60)
+    BOOKMAKER_PROVIDER_TIMEOUT_SECONDS: int = Field(default=8, ge=3, le=60)
     AUTO_COUPON_WINDOW_DAYS: int = Field(default=3, ge=1, le=3)
     AUTO_COUPON_REUSE_SECONDS: int = Field(default=21_600, ge=60, le=86_400)
     AUTO_COUPON_SETTLEMENT_SECONDS: int = Field(default=300, ge=60, le=3_600)
     AUTO_COUPON_FINALIST_ANALYSIS_TIMEOUT_SECONDS: int = Field(default=600, ge=45, le=900)
     AUTO_COUPON_REQUEST_TIMEOUT_SECONDS: int = Field(default=900, ge=180, le=1_800)
+    AUTO_COUPON_FORCE_DAILY_TICKET: bool = True
+    AUTO_COUPON_FORCED_MIN_COMBINED_ODDS: Decimal = Field(default=Decimal("1.80"), ge=Decimal("1.50"), le=Decimal("3.00"))
+    AUTO_COUPON_FORCED_MAX_COMBINED_ODDS: Decimal = Field(default=Decimal("2.20"), ge=Decimal("1.80"), le=Decimal("4.00"))
     AUTOMATION_TOKEN: SecretStr = SecretStr("")
     MONTHLY_BUDGET_USD: Decimal = Field(default=Decimal("10.00"), ge=0)
     RUN_SOFT_CAP_USD: Decimal = Field(default=Decimal("0.50"), ge=0)

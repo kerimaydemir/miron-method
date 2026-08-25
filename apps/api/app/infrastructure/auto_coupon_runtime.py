@@ -48,6 +48,9 @@ auto_coupon_service = AutoCouponService(
     window_days=settings.AUTO_COUPON_WINDOW_DAYS,
     reuse_seconds=settings.AUTO_COUPON_REUSE_SECONDS,
     finalist_analysis_timeout_seconds=settings.AUTO_COUPON_FINALIST_ANALYSIS_TIMEOUT_SECONDS,
+    force_daily_ticket=settings.AUTO_COUPON_FORCE_DAILY_TICKET,
+    forced_min_combined_odds=settings.AUTO_COUPON_FORCED_MIN_COMBINED_ODDS,
+    forced_max_combined_odds=settings.AUTO_COUPON_FORCED_MAX_COMBINED_ODDS,
 )
 
 _stop_event: asyncio.Event | None = None
