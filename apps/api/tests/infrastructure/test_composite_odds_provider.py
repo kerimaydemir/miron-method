@@ -122,6 +122,17 @@ class _Provider:
         )
 
 
+class _ResultProvider(_Provider):
+    def __init__(self, fixture: CanonicalFixture, result: CanonicalFixture) -> None:
+        super().__init__(fixture)
+        self._result = result
+
+    async def refresh_result(self, fixture_id: UUID) -> CanonicalFixture:
+        if fixture_id != self._fixture.id:
+            raise KeyError(str(fixture_id))
+        return self._result
+
+
 @pytest.mark.asyncio
 async def test_composite_odds_merges_all_available_provider_fixtures() -> None:
     now = datetime(2026, 8, 26, 9, tzinfo=UTC)
@@ -132,3 +143,24 @@ async def test_composite_odds_merges_all_available_provider_fixtures() -> None:
     pairs = await provider.list_market_fixtures(start_utc=now, end_utc=now + timedelta(days=1))
 
     assert [fixture.home_team for fixture, _ in pairs] == ["Early Home", "Late Home"]
+
+
+@pytest.mark.asyncio
+async def test_composite_odds_refresh_result_skips_finished_result_without_score() -> None:
+    now = datetime(2026, 8, 26, 9, tzinfo=UTC)
+    fixture = _fixture("Valencia", now - timedelta(hours=2))
+    finished_without_score = fixture.model_copy(update={"status": "finished"})
+    finished_with_score = fixture.model_copy(
+        update={"status": "finished", "home_score": 0, "away_score": 1}
+    )
+    provider = CompositeOddsProvider(
+        (
+            _ResultProvider(fixture, finished_without_score),
+            _ResultProvider(fixture, finished_with_score),
+        )
+    )
+
+    refreshed = await provider.refresh_result(fixture.id)
+
+    assert refreshed.home_score == 0
+    assert refreshed.away_score == 1

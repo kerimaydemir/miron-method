@@ -128,7 +128,18 @@ class EspnCoreOddsProvider:
         status = self._nested(event, "competitions", 0, "status", "type")
         if not isinstance(status, dict) or not status.get("completed"):
             return fixture
-        return fixture.model_copy(update={"status": "finished", "observed_at": datetime.now(UTC)})
+        scores = await self._result_scores(event)
+        if scores is None:
+            return fixture
+        home_score, away_score = scores
+        return fixture.model_copy(
+            update={
+                "status": "finished",
+                "home_score": home_score,
+                "away_score": away_score,
+                "observed_at": datetime.now(UTC),
+            }
+        )
 
     async def features_for(self, fixture: CanonicalFixture) -> TriageFactors:
         market = self._markets.get(fixture.id)
@@ -236,6 +247,29 @@ class EspnCoreOddsProvider:
                 if hydrated:
                     competitor["team"] = hydrated
         return event
+
+    async def _result_scores(self, event: Mapping[str, Any]) -> tuple[int, int] | None:
+        competitors = self._nested(event, "competitions", 0, "competitors")
+        if not isinstance(competitors, list):
+            return None
+        scores: dict[str, int] = {}
+        for competitor in competitors:
+            if not isinstance(competitor, Mapping):
+                continue
+            side = str(competitor.get("homeAway") or "").strip()
+            score_ref = self._ref_value(competitor.get("score"))
+            if side not in {"home", "away"} or not score_ref:
+                continue
+            try:
+                payload = await self._fetch_json(score_ref)
+            except (RuntimeError, ValueError, httpx.HTTPError):
+                continue
+            score = self._int_score(payload.get("value"))
+            if score is not None:
+                scores[side] = score
+        if "home" not in scores or "away" not in scores:
+            return None
+        return scores["home"], scores["away"]
 
     async def _normalize_event(
         self, event: dict[str, Any], league_key: str, observed_at: datetime
@@ -526,6 +560,13 @@ class EspnCoreOddsProvider:
         try:
             return Decimal(str(value).strip().replace("+", ""))
         except (InvalidOperation, AttributeError):
+            return None
+
+    @staticmethod
+    def _int_score(value: object) -> int | None:
+        try:
+            return int(str(value).strip())
+        except (TypeError, ValueError):
             return None
 
     @staticmethod

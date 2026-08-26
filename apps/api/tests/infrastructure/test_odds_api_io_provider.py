@@ -221,3 +221,89 @@ async def test_provider_sanitizes_rate_limit_errors_without_leaking_key() -> Non
     assert "sensitive-test-key" not in str(exc_info.value)
     assert str(exc_info.value) == "ODDS_API_IO_RATE_LIMITED"
     await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_refresh_result_uses_settled_status() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/events") and request.url.params["status"] == "pending":
+            return httpx.Response(
+                200,
+                json=[
+                    {
+                        "id": 72478464,
+                        "home": "Valencia CF",
+                        "away": "Real Betis Seville",
+                        "date": "2026-08-27T19:00:00Z",
+                        "status": "pending",
+                        "sport": {"name": "Football", "slug": "football"},
+                        "league": {"name": "Spain - LaLiga", "slug": "spain-laliga"},
+                        "scores": {"home": 0, "away": 0},
+                    }
+                ],
+            )
+        if request.url.path.endswith("/odds/multi"):
+            return httpx.Response(
+                200,
+                json=[
+                    {
+                        "id": 72478464,
+                        "home": "Valencia CF",
+                        "away": "Real Betis Seville",
+                        "date": "2026-08-27T19:00:00Z",
+                        "status": "pending",
+                        "sport": {"name": "Football", "slug": "football"},
+                        "league": {"name": "Spain - LaLiga", "slug": "spain-laliga"},
+                        "scores": {"home": 0, "away": 0},
+                        "bookmakers": {
+                            "Bet365": [
+                                {
+                                    "name": "ML",
+                                    "updatedAt": "2026-08-26T12:00:00Z",
+                                    "odds": [{"home": "2.1", "draw": "3.1", "away": "3.4"}],
+                                }
+                            ]
+                        },
+                    }
+                ],
+            )
+        assert request.url.path.endswith("/events")
+        assert request.url.params["status"] == "settled"
+        return httpx.Response(
+            200,
+            json=[
+                {
+                    "id": 72478464,
+                    "home": "Valencia CF",
+                    "away": "Real Betis Seville",
+                    "date": "2026-08-27T19:00:00Z",
+                    "status": "settled",
+                    "sport": {"name": "Football", "slug": "football"},
+                    "league": {"name": "Spain - LaLiga", "slug": "spain-laliga"},
+                    "scores": {"home": 0, "away": 1},
+                }
+            ],
+        )
+
+    client = httpx.AsyncClient(
+        transport=httpx.MockTransport(handler), base_url="https://odds-api-io.test/v3"
+    )
+    provider = OddsApiIoProvider(
+        api_key="test-key",
+        base_url="https://odds-api-io.test/v3",
+        refresh_seconds=300,
+        bookmakers="Bet365,Unibet",
+        events_per_league=1,
+        client=client,
+    )
+    items = await provider.list_market_fixtures(
+        start_utc=datetime(2026, 8, 27, tzinfo=UTC),
+        end_utc=datetime(2026, 8, 28, tzinfo=UTC),
+    )
+
+    refreshed = await provider.refresh_result(items[0][0].id)
+
+    assert refreshed.status == "finished"
+    assert refreshed.home_score == 0
+    assert refreshed.away_score == 1
+    await client.aclose()

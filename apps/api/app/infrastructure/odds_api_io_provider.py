@@ -234,8 +234,8 @@ class OddsApiIoProvider:
                 "apiKey": self._api_key,
                 "sport": "football",
                 "league": league_slug,
-                "status": "completed",
-                "limit": 25,
+                "status": "settled",
+                "limit": 50,
             },
         )
         response.raise_for_status()

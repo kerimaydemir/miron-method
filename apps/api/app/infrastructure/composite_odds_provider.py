@@ -192,13 +192,23 @@ class CompositeOddsProvider:
         raise KeyError(str(fixture_id))
 
     async def refresh_result(self, fixture_id: UUID) -> CanonicalFixture:
+        last_fixture: CanonicalFixture | None = None
         for provider in self._providers:
             if not provider.available:
                 continue
             try:
-                return await provider.refresh_result(fixture_id)
+                fixture = await provider.refresh_result(fixture_id)
             except (KeyError, httpx.HTTPError, RuntimeError, ValueError):
                 continue
+            if (
+                fixture.status == "finished"
+                and fixture.home_score is not None
+                and fixture.away_score is not None
+            ):
+                return fixture
+            last_fixture = fixture
+        if last_fixture is not None:
+            return last_fixture
         raise KeyError(str(fixture_id))
 
     async def features_for(self, fixture: CanonicalFixture) -> TriageFactors:
