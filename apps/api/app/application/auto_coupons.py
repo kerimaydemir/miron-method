@@ -572,8 +572,12 @@ class AutoCouponService:
 
     async def settle_pending(self, run_id: UUID | None = None) -> int:
         settled = 0
+        now = datetime.now(UTC)
         for pending in self._repository.list_pending():
             if run_id is not None and pending.auto_run_id != run_id:
+                continue
+            snapshot = getattr(pending, "fixture", None)
+            if isinstance(snapshot, CanonicalFixture) and snapshot.kickoff_at > now:
                 continue
             fixture = await self._refresh_pending_fixture_result(pending)
             if fixture is None:
