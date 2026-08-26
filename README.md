@@ -74,6 +74,8 @@ after a Gemini error. See
   branch
 - private Telegram bot notification for daily coupons and next-day learning summaries
   when `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` repository secrets are configured
+- automation finalist calls fail fast enough for daily use; if deep analysis times
+  out, the system records a journal-only candidate instead of forcing a blind coupon
 
 Use `make quality` for the complete containerized quality gate. Operational checks
 are documented in [`docs/runbooks/local-pilot.md`](./docs/runbooks/local-pilot.md).

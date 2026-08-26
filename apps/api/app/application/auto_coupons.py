@@ -77,6 +77,8 @@ TEAM_SIGNATURE_STOPWORDS = frozenset(
         "fc",
         "football",
         "sc",
+        "san",
+        "sebastian",
         "sevilla",
         "seville",
         "the",
@@ -191,6 +193,11 @@ class AutoCouponService:
             and self._is_reusable(existing, now)
         ):
             return existing
+        if existing is not None and not refresh_existing_journal:
+            run_id = uuid5(
+                NAMESPACE_URL,
+                f"miron-baba-ai:auto-coupon:{idempotency_key}:{now.isoformat(timespec='seconds')}",
+            )
         latest = self._repository.latest()
         if latest is not None and self._is_reusable(latest, now):
             return latest

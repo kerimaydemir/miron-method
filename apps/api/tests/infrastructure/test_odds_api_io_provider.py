@@ -21,7 +21,7 @@ async def test_provider_filters_top_league_and_normalizes_richer_markets() -> No
                         "id": 72221172,
                         "home": "Fulham FC",
                         "away": "Chelsea FC",
-                        "date": "2026-08-25T19:00:00Z",
+                        "date": "2026-08-27T19:00:00Z",
                         "status": "pending",
                         "sport": {"name": "Football", "slug": "football"},
                         "league": {
@@ -42,7 +42,7 @@ async def test_provider_filters_top_league_and_normalizes_richer_markets() -> No
                     "id": 72221172,
                     "home": "Fulham FC",
                     "away": "Chelsea FC",
-                    "date": "2026-08-25T19:00:00Z",
+                    "date": "2026-08-27T19:00:00Z",
                     "status": "pending",
                     "sport": {"name": "Football", "slug": "football"},
                     "league": {
@@ -162,8 +162,8 @@ async def test_provider_filters_top_league_and_normalizes_richer_markets() -> No
         client=client,
     )
     items = await provider.list_market_fixtures(
-        start_utc=datetime(2026, 8, 25, tzinfo=UTC),
-        end_utc=datetime(2026, 8, 26, tzinfo=UTC),
+        start_utc=datetime(2026, 8, 27, tzinfo=UTC),
+        end_utc=datetime(2026, 8, 28, tzinfo=UTC),
     )
     assert len(items) == 1
     fixture, market = items[0]

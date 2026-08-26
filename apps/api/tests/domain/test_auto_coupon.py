@@ -382,6 +382,19 @@ def test_candidate_deduplication_collapses_provider_name_variants() -> None:
     assert [item.fixture.home_team for item in unique] == ["Valencia CF", "Celta Vigo"]
 
 
+def test_match_key_collapses_real_sociedad_san_sebastian_suffix() -> None:
+    first_fixture = fixture("la1").model_copy(
+        update={"home_team": "Real Madrid", "away_team": "Real Sociedad San Sebastian"}
+    )
+    duplicate_fixture = fixture("la1").model_copy(
+        update={"home_team": "Real Madrid", "away_team": "Real Sociedad"}
+    )
+
+    assert AutoCouponService._fixture_match_key(first_fixture) == (
+        AutoCouponService._fixture_match_key(duplicate_fixture)
+    )
+
+
 def test_ticket_math_fails_closed_without_bookmaker_odds() -> None:
     league = TOP_LEAGUES[1]
     selection = CouponSelection(
