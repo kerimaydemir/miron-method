@@ -3,10 +3,10 @@ import hashlib
 import math
 import re
 import unicodedata
-from collections.abc import Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from datetime import UTC, datetime, time, timedelta
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
-from typing import Literal, Protocol, cast
+from typing import Any, Literal, Protocol, cast
 from uuid import NAMESPACE_URL, UUID, uuid5
 from zoneinfo import ZoneInfo
 
@@ -575,9 +575,8 @@ class AutoCouponService:
         for pending in self._repository.list_pending():
             if run_id is not None and pending.auto_run_id != run_id:
                 continue
-            try:
-                fixture = await self._analysis_fixtures.refresh_result(pending.fixture_id)
-            except (KeyError, RuntimeError, httpx.HTTPError):
+            fixture = await self._refresh_pending_fixture_result(pending)
+            if fixture is None:
                 continue
             if (
                 fixture.status != "finished"
@@ -648,8 +647,27 @@ class AutoCouponService:
                         "lesson": autopsy.lesson.model_dump(mode="json"),
                     },
                 )
-            settled += 1
+                settled += 1
         return settled
+
+    async def _refresh_pending_fixture_result(self, pending: Any) -> CanonicalFixture | None:
+        try:
+            return await self._analysis_fixtures.refresh_result(pending.fixture_id)
+        except (KeyError, RuntimeError, httpx.HTTPError):
+            snapshot = getattr(pending, "fixture", None)
+            if not isinstance(snapshot, CanonicalFixture):
+                return None
+            refresh_snapshot = getattr(self._odds, "refresh_fixture_result", None)
+            if refresh_snapshot is None:
+                return snapshot
+            try:
+                refresh_fixture_result = cast(
+                    Callable[[CanonicalFixture], Awaitable[CanonicalFixture]],
+                    refresh_snapshot,
+                )
+                return await refresh_fixture_result(snapshot)
+            except (KeyError, RuntimeError, ValueError, httpx.HTTPError):
+                return snapshot
 
     async def review_daily_predictions(self) -> int:
         reviewed = 0

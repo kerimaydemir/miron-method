@@ -11,6 +11,7 @@ from app.domain.auto_coupon import (
     CalibrationBand,
     MarketPerformance,
 )
+from app.domain.fixtures import CanonicalFixture
 from app.infrastructure.analysis_repository import canonical_json, sha256_text
 
 
@@ -19,6 +20,7 @@ class PendingSelection(NamedTuple):
     fixture_id: UUID
     lock_id: UUID
     pick: str
+    fixture: CanonicalFixture | None = None
 
 
 class AutoCouponRepository(Protocol):
@@ -75,7 +77,7 @@ class NullAutoCouponRepository:
 
     def list_pending(self) -> tuple[PendingSelection, ...]:
         return tuple(
-            PendingSelection(run.run_id, item.fixture.id, item.lock_id, item.pick)
+            PendingSelection(run.run_id, item.fixture.id, item.lock_id, item.pick, item.fixture)
             for run in self._runs.values()
             for item in run.selections
             if item.settlement_status == "pending"
@@ -496,20 +498,40 @@ class PostgresAutoCouponRepository:
         with self._engine.connect() as connection:
             rows = connection.execute(
                 text("""
-                SELECT auto_coupon_run_id, fixture_id, prediction_lock_id, pick
-                FROM coupon_selections WHERE settlement_status = 'pending'
-                ORDER BY created_at
+                SELECT
+                  coupon_selections.auto_coupon_run_id,
+                  coupon_selections.fixture_id,
+                  coupon_selections.prediction_lock_id,
+                  coupon_selections.pick,
+                  auto_coupon_runs.run_json
+                FROM coupon_selections
+                JOIN auto_coupon_runs
+                  ON auto_coupon_runs.id = coupon_selections.auto_coupon_run_id
+                WHERE coupon_selections.settlement_status = 'pending'
+                ORDER BY coupon_selections.created_at
                 """)
             ).mappings()
-            return tuple(
-                PendingSelection(
-                    auto_run_id=cast(UUID, row["auto_coupon_run_id"]),
-                    fixture_id=cast(UUID, row["fixture_id"]),
-                    lock_id=cast(UUID, row["prediction_lock_id"]),
-                    pick=str(row["pick"]),
+            pending: list[PendingSelection] = []
+            for row in rows:
+                run = AutoCouponRun.model_validate(row["run_json"])
+                fixture = next(
+                    (
+                        selection.fixture
+                        for selection in run.selections
+                        if selection.fixture.id == cast(UUID, row["fixture_id"])
+                    ),
+                    None,
                 )
-                for row in rows
-            )
+                pending.append(
+                    PendingSelection(
+                        auto_run_id=cast(UUID, row["auto_coupon_run_id"]),
+                        fixture_id=cast(UUID, row["fixture_id"]),
+                        lock_id=cast(UUID, row["prediction_lock_id"]),
+                        pick=str(row["pick"]),
+                        fixture=fixture,
+                    )
+                )
+            return tuple(pending)
 
     def mark_settled(
         self,

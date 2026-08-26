@@ -225,7 +225,10 @@ class OddsApiIoProvider:
 
     async def refresh_result(self, fixture_id: UUID) -> CanonicalFixture:
         fixture = await self.get_fixture(fixture_id)
-        league_slug = self._league_slugs.get(fixture_id)
+        return await self.refresh_fixture_result(fixture)
+
+    async def refresh_fixture_result(self, fixture: CanonicalFixture) -> CanonicalFixture:
+        league_slug = self._league_slugs.get(fixture.id) or self._league_slug_for_fixture(fixture)
         if not league_slug:
             return fixture
         response = await self._client.get(
@@ -258,7 +261,7 @@ class OddsApiIoProvider:
                 "observed_at": datetime.now(UTC),
             }
         )
-        self._fixtures[fixture_id] = updated
+        self._fixtures[fixture.id] = updated
         return updated
 
     async def features_for(self, fixture: CanonicalFixture) -> TriageFactors:
@@ -605,3 +608,15 @@ class OddsApiIoProvider:
             return int(str(raw))
         except (TypeError, ValueError):
             return None
+
+    @staticmethod
+    def _league_slug_for_fixture(fixture: CanonicalFixture) -> str | None:
+        if fixture.competition_key.startswith("oddsapiio:"):
+            return fixture.competition_key.split(":", 1)[1]
+        league = next(
+            (item for item in TOP_LEAGUES if item.key in fixture.competition_key),
+            None,
+        )
+        if league is None:
+            return None
+        return ODDS_API_IO_LEAGUE_SLUGS.get(league.key)

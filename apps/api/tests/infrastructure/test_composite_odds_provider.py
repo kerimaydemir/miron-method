@@ -132,6 +132,11 @@ class _ResultProvider(_Provider):
             raise KeyError(str(fixture_id))
         return self._result
 
+    async def refresh_fixture_result(self, fixture: CanonicalFixture) -> CanonicalFixture:
+        if fixture.id != self._fixture.id:
+            raise KeyError(str(fixture.id))
+        return self._result
+
 
 @pytest.mark.asyncio
 async def test_composite_odds_merges_all_available_provider_fixtures() -> None:
@@ -162,5 +167,21 @@ async def test_composite_odds_refresh_result_skips_finished_result_without_score
 
     refreshed = await provider.refresh_result(fixture.id)
 
+    assert refreshed.home_score == 0
+    assert refreshed.away_score == 1
+
+
+@pytest.mark.asyncio
+async def test_composite_odds_refreshes_result_from_snapshot() -> None:
+    now = datetime(2026, 8, 26, 9, tzinfo=UTC)
+    fixture = _fixture("Valencia", now - timedelta(hours=2))
+    finished_with_score = fixture.model_copy(
+        update={"status": "finished", "home_score": 0, "away_score": 1}
+    )
+    provider = CompositeOddsProvider((_ResultProvider(fixture, finished_with_score),))
+
+    refreshed = await provider.refresh_fixture_result(fixture)
+
+    assert refreshed.status == "finished"
     assert refreshed.home_score == 0
     assert refreshed.away_score == 1

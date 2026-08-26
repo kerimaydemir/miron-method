@@ -1,9 +1,11 @@
 from datetime import UTC, datetime
 from decimal import Decimal
+from uuid import uuid4
 
 import httpx
 import pytest
 
+from app.domain.fixtures import CanonicalFixture
 from app.infrastructure.odds_api_io_provider import OddsApiIoProvider
 
 
@@ -302,6 +304,58 @@ async def test_refresh_result_uses_settled_status() -> None:
     )
 
     refreshed = await provider.refresh_result(items[0][0].id)
+
+    assert refreshed.status == "finished"
+    assert refreshed.home_score == 0
+    assert refreshed.away_score == 1
+    await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_refresh_fixture_result_uses_snapshot_league_slug() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path.endswith("/events")
+        assert request.url.params["status"] == "settled"
+        assert request.url.params["league"] == "spain-laliga"
+        return httpx.Response(
+            200,
+            json=[
+                {
+                    "id": 72478464,
+                    "home": "Valencia CF",
+                    "away": "Real Betis Seville",
+                    "date": "2026-08-25T19:00:00Z",
+                    "status": "settled",
+                    "sport": {"name": "Football", "slug": "football"},
+                    "league": {"name": "Spain - LaLiga", "slug": "spain-laliga"},
+                    "scores": {"home": 0, "away": 1},
+                }
+            ],
+        )
+
+    client = httpx.AsyncClient(
+        transport=httpx.MockTransport(handler), base_url="https://odds-api-io.test/v3"
+    )
+    provider = OddsApiIoProvider(
+        api_key="test-key",
+        base_url="https://odds-api-io.test/v3",
+        refresh_seconds=300,
+        bookmakers="Bet365,Unibet",
+        events_per_league=1,
+        client=client,
+    )
+    fixture = CanonicalFixture(
+        id=uuid4(),
+        competition_key="oddsapiio:spain-laliga",
+        competition_name="LaLiga",
+        home_team="Valencia CF",
+        away_team="Real Betis Seville",
+        kickoff_at=datetime(2026, 8, 25, 19, tzinfo=UTC),
+        source_provider="odds_api_io",
+        provider_fixture_id="72478464",
+    )
+
+    refreshed = await provider.refresh_fixture_result(fixture)
 
     assert refreshed.status == "finished"
     assert refreshed.home_score == 0

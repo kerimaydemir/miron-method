@@ -1,5 +1,6 @@
 from datetime import UTC, datetime
 from decimal import Decimal
+from uuid import uuid4
 
 import httpx
 import pytest
@@ -194,7 +195,12 @@ async def test_espn_refresh_result_reads_score_refs() -> None:
             end_utc=datetime(2026, 8, 27, 22, tzinfo=UTC),
         )
         refreshed = await provider.refresh_result(pairs[0][0].id)
+        snapshot = pairs[0][0].model_copy(update={"id": uuid4()})
+        refreshed_from_snapshot = await provider.refresh_fixture_result(snapshot)
 
     assert refreshed.status == "finished"
     assert refreshed.home_score == 0
     assert refreshed.away_score == 1
+    assert refreshed_from_snapshot.status == "finished"
+    assert refreshed_from_snapshot.home_score == 0
+    assert refreshed_from_snapshot.away_score == 1

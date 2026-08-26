@@ -124,7 +124,24 @@ class EspnCoreOddsProvider:
         fixture = await self.get_fixture(fixture_id)
         event = self._events.get(fixture_id)
         if not event:
+            return await self.refresh_fixture_result(fixture)
+        return await self._result_from_event(fixture, event)
+
+    async def refresh_fixture_result(self, fixture: CanonicalFixture) -> CanonicalFixture:
+        if not fixture.provider_fixture_id:
             return fixture
+        league_path = self._league_path_for_fixture(fixture)
+        if league_path is None:
+            return fixture
+        event = await self._fetch_json(
+            f"{self._base_url}/leagues/{league_path}/events/{fixture.provider_fixture_id}",
+            params={"lang": "en", "region": "us"},
+        )
+        return await self._result_from_event(fixture, event)
+
+    async def _result_from_event(
+        self, fixture: CanonicalFixture, event: Mapping[str, Any]
+    ) -> CanonicalFixture:
         status = self._nested(event, "competitions", 0, "status", "type")
         if not isinstance(status, dict) or not status.get("completed"):
             return fixture
@@ -498,6 +515,19 @@ class EspnCoreOddsProvider:
             if candidate == league_path:
                 return key
         return None
+
+    @staticmethod
+    def _league_path_for_fixture(fixture: CanonicalFixture) -> str | None:
+        parts = fixture.competition_key.split(":")
+        if len(parts) >= 3 and parts[0] == "espn-core":
+            return ESPN_CORE_LEAGUES.get(parts[1])
+        league = next(
+            (item for item in TOP_LEAGUES if item.key in fixture.competition_key),
+            None,
+        )
+        if league is None:
+            return None
+        return ESPN_CORE_LEAGUES.get(league.key)
 
     @staticmethod
     def _league_name(league_key: str) -> str:

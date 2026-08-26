@@ -1,8 +1,8 @@
 import asyncio
 import logging
-from collections.abc import Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from datetime import datetime
-from typing import Protocol
+from typing import Protocol, cast
 from uuid import UUID
 
 import httpx
@@ -210,6 +210,33 @@ class CompositeOddsProvider:
         if last_fixture is not None:
             return last_fixture
         raise KeyError(str(fixture_id))
+
+    async def refresh_fixture_result(self, fixture: CanonicalFixture) -> CanonicalFixture:
+        last_fixture: CanonicalFixture | None = None
+        for provider in self._providers:
+            if not provider.available:
+                continue
+            refresh_snapshot = getattr(provider, "refresh_fixture_result", None)
+            if refresh_snapshot is None:
+                continue
+            try:
+                refresh_fixture_result = cast(
+                    Callable[[CanonicalFixture], Awaitable[CanonicalFixture]],
+                    refresh_snapshot,
+                )
+                updated = await refresh_fixture_result(fixture)
+            except (KeyError, httpx.HTTPError, RuntimeError, ValueError):
+                continue
+            if (
+                updated.status == "finished"
+                and updated.home_score is not None
+                and updated.away_score is not None
+            ):
+                return updated
+            last_fixture = updated
+        if last_fixture is not None:
+            return last_fixture
+        return fixture
 
     async def features_for(self, fixture: CanonicalFixture) -> TriageFactors:
         for provider in self._providers:
