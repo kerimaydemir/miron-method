@@ -651,23 +651,32 @@ class AutoCouponService:
         return settled
 
     async def _refresh_pending_fixture_result(self, pending: Any) -> CanonicalFixture | None:
+        fixture: CanonicalFixture | None = None
         try:
-            return await self._analysis_fixtures.refresh_result(pending.fixture_id)
+            fixture = await self._analysis_fixtures.refresh_result(pending.fixture_id)
         except (KeyError, RuntimeError, httpx.HTTPError):
-            snapshot = getattr(pending, "fixture", None)
-            if not isinstance(snapshot, CanonicalFixture):
-                return None
-            refresh_snapshot = getattr(self._odds, "refresh_fixture_result", None)
-            if refresh_snapshot is None:
-                return snapshot
-            try:
-                refresh_fixture_result = cast(
-                    Callable[[CanonicalFixture], Awaitable[CanonicalFixture]],
-                    refresh_snapshot,
-                )
-                return await refresh_fixture_result(snapshot)
-            except (KeyError, RuntimeError, ValueError, httpx.HTTPError):
-                return snapshot
+            fixture = None
+        if (
+            fixture is not None
+            and fixture.status == "finished"
+            and fixture.home_score is not None
+            and fixture.away_score is not None
+        ):
+            return fixture
+        snapshot = getattr(pending, "fixture", None)
+        if not isinstance(snapshot, CanonicalFixture):
+            return fixture
+        refresh_snapshot = getattr(self._odds, "refresh_fixture_result", None)
+        if refresh_snapshot is None:
+            return fixture or snapshot
+        try:
+            refresh_fixture_result = cast(
+                Callable[[CanonicalFixture], Awaitable[CanonicalFixture]],
+                refresh_snapshot,
+            )
+            return await refresh_fixture_result(snapshot)
+        except (KeyError, RuntimeError, ValueError, httpx.HTTPError):
+            return fixture or snapshot
 
     async def review_daily_predictions(self) -> int:
         reviewed = 0
