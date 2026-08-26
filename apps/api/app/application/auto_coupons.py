@@ -586,7 +586,7 @@ class AutoCouponService:
                 continue
             try:
                 lock = self._analysis.get_lock(pending.lock_id)
-            except KeyError:
+            except (KeyError, ValueError):
                 actual = result_outcome(
                     MatchResult(
                         fixture_id=fixture.id,
