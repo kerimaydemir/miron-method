@@ -142,8 +142,7 @@ class EspnCoreOddsProvider:
     async def _result_from_event(
         self, fixture: CanonicalFixture, event: Mapping[str, Any]
     ) -> CanonicalFixture:
-        status = self._nested(event, "competitions", 0, "status", "type")
-        if not isinstance(status, dict) or not status.get("completed"):
+        if not await self._event_completed(event):
             return fixture
         scores = await self._result_scores(event)
         if scores is None:
@@ -157,6 +156,20 @@ class EspnCoreOddsProvider:
                 "observed_at": datetime.now(UTC),
             }
         )
+
+    async def _event_completed(self, event: Mapping[str, Any]) -> bool:
+        status = self._nested(event, "competitions", 0, "status", "type")
+        if isinstance(status, Mapping):
+            return bool(status.get("completed"))
+        status_ref = self._ref_value(self._nested(event, "competitions", 0, "status"))
+        if not status_ref:
+            return False
+        try:
+            payload = await self._fetch_json(status_ref)
+        except (RuntimeError, ValueError, httpx.HTTPError):
+            return False
+        status_type = payload.get("type")
+        return isinstance(status_type, Mapping) and bool(status_type.get("completed"))
 
     async def features_for(self, fixture: CanonicalFixture) -> TriageFactors:
         market = self._markets.get(fixture.id)
@@ -595,8 +608,8 @@ class EspnCoreOddsProvider:
     @staticmethod
     def _int_score(value: object) -> int | None:
         try:
-            return int(str(value).strip())
-        except (TypeError, ValueError):
+            return int(Decimal(str(value).strip()))
+        except (InvalidOperation, TypeError, ValueError):
             return None
 
     @staticmethod

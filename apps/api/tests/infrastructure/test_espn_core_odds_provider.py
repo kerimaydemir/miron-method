@@ -133,7 +133,9 @@ async def test_espn_refresh_result_reads_score_refs() -> None:
                     "competitions": [
                         {
                             "id": "401882917",
-                            "status": {"type": {"completed": True}},
+                            "status": {
+                                "$ref": "http://sports.core.api.espn.com/v2/sports/soccer/leagues/esp.1/events/401882917/competitions/401882917/status?lang=en&region=us"
+                            },
                             "competitors": [
                                 {
                                     "homeAway": "home",
@@ -161,14 +163,16 @@ async def test_espn_refresh_result_reads_score_refs() -> None:
                     ],
                 },
             )
+        if path.endswith("/competitions/401882917/status"):
+            return httpx.Response(200, json={"type": {"completed": True, "detail": "FT"}})
         if path.endswith("/teams/94"):
             return httpx.Response(200, json={"id": "94", "displayName": "Valencia"})
         if path.endswith("/teams/244"):
             return httpx.Response(200, json={"id": "244", "displayName": "Real Betis"})
         if path.endswith("/competitors/94/score"):
-            return httpx.Response(200, json={"value": 0})
+            return httpx.Response(200, json={"value": 0.0})
         if path.endswith("/competitors/244/score"):
-            return httpx.Response(200, json={"value": 1})
+            return httpx.Response(200, json={"value": 1.0})
         if path.endswith("/competitions/401882917/odds"):
             return httpx.Response(
                 200,
