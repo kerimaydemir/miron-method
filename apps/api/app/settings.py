@@ -70,6 +70,7 @@ class Settings(BaseSettings):
     AUTO_COUPON_WINDOW_DAYS: int = Field(default=3, ge=1, le=3)
     AUTO_COUPON_REUSE_SECONDS: int = Field(default=21_600, ge=60, le=86_400)
     AUTO_COUPON_SETTLEMENT_SECONDS: int = Field(default=300, ge=60, le=3_600)
+    AUTO_COUPON_BACKGROUND_SETTLEMENT_ENABLED: bool = True
     AUTO_COUPON_FINALIST_ANALYSIS_TIMEOUT_SECONDS: int = Field(default=600, ge=45, le=900)
     AUTO_COUPON_REQUEST_TIMEOUT_SECONDS: int = Field(default=900, ge=180, le=1_800)
     AUTO_COUPON_FORCE_DAILY_TICKET: bool = True

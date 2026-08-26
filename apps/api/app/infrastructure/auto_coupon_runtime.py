@@ -60,6 +60,8 @@ _settlement_task: asyncio.Task[None] | None = None
 
 async def start_auto_coupon_runtime() -> None:
     global _settlement_task, _stop_event
+    if not settings.AUTO_COUPON_BACKGROUND_SETTLEMENT_ENABLED:
+        return
     if _settlement_task is None:
         _stop_event = asyncio.Event()
         _settlement_task = asyncio.create_task(
