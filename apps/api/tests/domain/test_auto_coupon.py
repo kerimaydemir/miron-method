@@ -89,6 +89,23 @@ def test_free_mode_readiness_does_not_require_paid_gemini() -> None:
     assert "ücretsiz maliyet korumalı mod" in readiness.notice
 
 
+def test_selection_label_does_not_repeat_team_name_for_h2h() -> None:
+    quote = MarketQuote(
+        provider="espn_core_odds",
+        observed_at=datetime(2026, 8, 24, 9, 0, tzinfo=UTC),
+        market_key="h2h",
+        market_label="Maç sonucu",
+        outcome_key="home",
+        outcome_label="Barcelona",
+        description="Barcelona",
+        decimal_odds=Decimal("1.22"),
+        fair_probability=Decimal(".78"),
+        bookmaker_count=1,
+    )
+
+    assert AutoCouponService._selection_label(quote) == "Barcelona"
+
+
 def test_legacy_league_payload_without_football_data_code_remains_readable() -> None:
     policy = LeaguePolicy.model_validate(
         {

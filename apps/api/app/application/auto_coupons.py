@@ -1569,7 +1569,10 @@ class AutoCouponService:
 
     @staticmethod
     def _selection_label(quote: MarketQuote) -> str:
-        parts = [quote.description, quote.outcome_label]
+        parts = []
+        if quote.description and quote.description.casefold() != quote.outcome_label.casefold():
+            parts.append(quote.description)
+        parts.append(quote.outcome_label)
         if quote.point is not None:
             parts.append(str(quote.point))
         return " ".join(item for item in parts if item)
