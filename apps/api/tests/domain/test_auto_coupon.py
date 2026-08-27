@@ -372,6 +372,97 @@ def test_forced_daily_coupon_combines_two_banko_legs_when_strict_gate_is_empty()
     assert "Forced mod %70 garanti iddiası değildir" in selections[0].uncertainty
 
 
+def test_forced_daily_coupon_avoids_tiny_h2h_favorite_when_richer_leg_exists() -> None:
+    now = datetime(2026, 8, 24, 9, 0, tzinfo=UTC)
+    league = TOP_LEAGUES[1]
+    first_fixture = fixture("la1").model_copy(
+        update={"home_team": "Barcelona", "away_team": "Athletic Club"}
+    )
+    second_fixture = fixture("la1").model_copy(
+        update={"home_team": "Celta Vigo", "away_team": "Osasuna"}
+    )
+    candidates = (
+        AutoCandidate(
+            fixture=first_fixture,
+            league=league,
+            auto_score=85,
+            memory_case_count=0,
+            positive_factors=("LaLiga",),
+            risk_flags=(),
+        ),
+        AutoCandidate(
+            fixture=second_fixture,
+            league=league,
+            auto_score=82,
+            memory_case_count=0,
+            positive_factors=("LaLiga",),
+            risk_flags=(),
+        ),
+    )
+    low_h2h = MarketQuote(
+        provider="odds_api_io",
+        observed_at=now,
+        market_key="h2h",
+        market_label="Maç sonucu",
+        outcome_key="home",
+        outcome_label="Barcelona",
+        description="Barcelona",
+        decimal_odds=Decimal("1.22"),
+        fair_probability=Decimal(".78"),
+        bookmaker_count=1,
+    )
+    richer_spread = low_h2h.model_copy(
+        update={
+            "market_key": "spread",
+            "market_label": "Handikap",
+            "outcome_key": "home",
+            "outcome_label": "Barcelona",
+            "point": Decimal("-1.5"),
+            "decimal_odds": Decimal("1.60"),
+            "fair_probability": Decimal(".58"),
+        }
+    )
+    total_under = MarketQuote(
+        provider="odds_api_io",
+        observed_at=now,
+        market_key="totals",
+        market_label="Toplam gol",
+        outcome_key="under",
+        outcome_label="Alt",
+        point=Decimal("2.5"),
+        decimal_odds=Decimal("1.61"),
+        fair_probability=Decimal(".59"),
+        bookmaker_count=1,
+    )
+    first_market = MarketOdds(
+        provider="odds_api_io",
+        observed_at=now,
+        bookmaker_count=1,
+        home_decimal=Decimal("1.22"),
+        draw_decimal=Decimal("6.00"),
+        away_decimal=Decimal("12.00"),
+        fair_home_probability=Decimal(".765625"),
+        fair_draw_probability=Decimal(".156250"),
+        fair_away_probability=Decimal(".078125"),
+        quotes=(low_h2h, richer_spread),
+    )
+    second_market = market_for_quote(total_under)
+    service = AutoCouponService.__new__(AutoCouponService)
+    service._forced_min_combined_odds = Decimal("1.80")
+    service._forced_max_combined_odds = Decimal("2.60")
+
+    selections, tickets = service._forced_daily_coupon(
+        uuid4(),
+        candidates,
+        {first_fixture.id: first_market, second_fixture.id: second_market},
+        now,
+    )
+
+    assert tickets[0].combined_decimal_odds == Decimal("2.58")
+    assert [selection.pick.split(":")[0] for selection in selections] == ["spread", "totals"]
+    assert selections[0].outcome_label == "Handikap 1 -1.5 (Barcelona)"
+
+
 def test_forced_daily_coupon_rejects_duplicate_match_from_different_providers() -> None:
     now = datetime(2026, 8, 24, 9, 0, tzinfo=UTC)
     league = TOP_LEAGUES[1]

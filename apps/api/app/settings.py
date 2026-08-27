@@ -77,7 +77,7 @@ class Settings(BaseSettings):
     AUTO_COUPON_REQUEST_TIMEOUT_SECONDS: int = Field(default=900, ge=180, le=1_800)
     AUTO_COUPON_FORCE_DAILY_TICKET: bool = True
     AUTO_COUPON_FORCED_MIN_COMBINED_ODDS: Decimal = Field(default=Decimal("1.80"), ge=Decimal("1.50"), le=Decimal("3.00"))
-    AUTO_COUPON_FORCED_MAX_COMBINED_ODDS: Decimal = Field(default=Decimal("2.20"), ge=Decimal("1.80"), le=Decimal("4.00"))
+    AUTO_COUPON_FORCED_MAX_COMBINED_ODDS: Decimal = Field(default=Decimal("2.60"), ge=Decimal("1.80"), le=Decimal("4.00"))
     AUTOMATION_TOKEN: SecretStr = SecretStr("")
     MONTHLY_BUDGET_USD: Decimal = Field(default=Decimal("10.00"), ge=0)
     RUN_SOFT_CAP_USD: Decimal = Field(default=Decimal("0.50"), ge=0)

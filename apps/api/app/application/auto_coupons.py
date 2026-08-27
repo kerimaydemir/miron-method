@@ -154,7 +154,7 @@ class AutoCouponService:
         finalist_analysis_timeout_seconds: int = 240,
         force_daily_ticket: bool = True,
         forced_min_combined_odds: Decimal = Decimal("1.80"),
-        forced_max_combined_odds: Decimal = Decimal("2.20"),
+        forced_max_combined_odds: Decimal = Decimal("2.60"),
         app_timezone: str = "Europe/Istanbul",
     ) -> None:
         self._fixtures = fixtures
@@ -1711,13 +1711,13 @@ class AutoCouponService:
                     continue
                 if quote.bookmaker_count < 1 or not self._settleable_market(quote.market_key):
                     continue
-                if quote.decimal_odds < Decimal("1.18") or quote.decimal_odds > Decimal("2.05"):
+                if quote.decimal_odds < Decimal("1.30") or quote.decimal_odds > Decimal("2.05"):
                     continue
                 probability = self._journal_probability(candidate, quote)
                 edge = probability - quote.fair_probability
-                target_leg_price = Decimal("1.37")
+                target_leg_price = Decimal("1.45")
                 price_penalty = abs(quote.decimal_odds - target_leg_price) * Decimal("8")
-                safety_bonus = Decimal("8") if quote.decimal_odds <= Decimal("1.55") else Decimal("0")
+                safety_bonus = Decimal("8") if quote.decimal_odds <= Decimal("1.65") else Decimal("0")
                 score = (
                     probability * Decimal("100")
                     + self._market_depth_bonus(quote.market_key) * Decimal("1.2")
@@ -1757,7 +1757,7 @@ class AutoCouponService:
                 if combined_odds < self._forced_min_combined_odds:
                     continue
                 combined_probability = left[3] * right[3]
-                target_odds = (self._forced_min_combined_odds + Decimal(".07")).quantize(
+                target_odds = (self._forced_min_combined_odds + Decimal(".30")).quantize(
                     Decimal(".01"), rounding=ROUND_HALF_UP
                 )
                 closeness_penalty = abs(combined_odds - target_odds) * Decimal("12")
