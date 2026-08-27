@@ -57,11 +57,35 @@ def market_for_quote(
 
 
 def test_top_league_allowlist_excludes_mexico_and_colombia() -> None:
-    assert len(TOP_LEAGUES) == 8
-    assert len({item.key for item in TOP_LEAGUES}) == 8
+    assert len(TOP_LEAGUES) == 10
+    assert len({item.key for item in TOP_LEAGUES}) == 10
     assert league_for_fixture(fixture("la1")) is not None
     assert league_for_fixture(fixture("mex1", "Liga MX")) is None
     assert league_for_fixture(fixture("col1", "Primera A Colombia")) is None
+
+
+def test_added_top_leagues_map_across_live_providers() -> None:
+    championship = CanonicalFixture(
+        id=uuid4(),
+        competition_key="oddsapiio:england-championship",
+        competition_name="Championship",
+        home_team="Leeds United",
+        away_team="Norwich City",
+        kickoff_at=datetime(2026, 8, 24, 18, 0, tzinfo=UTC),
+        source_provider="odds_api_io",
+    )
+    mls = championship.model_copy(
+        update={
+            "competition_key": "api-football:mls:253",
+            "competition_name": "MLS",
+            "home_team": "Inter Miami",
+            "away_team": "LA Galaxy",
+            "source_provider": "api_football",
+        }
+    )
+
+    assert league_for_fixture(championship).key == "championship"  # type: ignore[union-attr]
+    assert league_for_fixture(mls).key == "mls"  # type: ignore[union-attr]
 
 
 def test_free_mode_readiness_does_not_require_paid_gemini() -> None:

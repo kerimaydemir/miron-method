@@ -218,7 +218,7 @@ entries:
       - apps/api/tests/domain/test_auto_coupon.py
       - apps/api/tests/infrastructure/test_the_odds_api_provider.py
     evidence:
-      - top_eight_allowlist_excludes_mexico_and_colombia
+      - top_ten_allowlist_excludes_mexico_and_colombia
       - bookmaker_average_and_proportional_overround_test_pass
       - deterministic_ten_to_five_to_three_contract_pass
       - single_double_treble_probability_math_pass

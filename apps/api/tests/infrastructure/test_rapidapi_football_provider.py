@@ -8,7 +8,7 @@ from app.infrastructure.rapidapi_football_provider import RapidApiFootballProvid
 
 
 @pytest.mark.anyio
-async def test_rapidapi_provider_keeps_only_eight_allowed_leagues() -> None:
+async def test_rapidapi_provider_keeps_only_supported_top_league_subset() -> None:
     async def handler(request: httpx.Request) -> httpx.Response:
         assert request.headers["x-rapidapi-key"] == "secret"
         return httpx.Response(

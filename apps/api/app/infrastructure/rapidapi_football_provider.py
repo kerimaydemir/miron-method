@@ -343,4 +343,4 @@ class RapidApiFootballProvider:
         return value if isinstance(value, dict) else {}
 
 
-assert {item.key for item in TOP_LEAGUES} == {item[0] for item in RAPID_LEAGUES.values()}
+assert {item[0] for item in RAPID_LEAGUES.values()}.issubset({item.key for item in TOP_LEAGUES})

@@ -108,6 +108,18 @@ Scheduled automation keeps `GEMINI_ENABLED=false` and writes an empty
 paid LLM route is intentionally tested later, enable it only in a separate local pilot
 or a deliberately reviewed branch.
 
+The scheduled GitHub cycle is:
+
+- `05:30 UTC` / `08:30 Europe/Istanbul`: pre-match scan and Telegram coupon.
+- `23:30 UTC` / `02:30 Europe/Istanbul`: first post-match settlement/review pass.
+- `10:30 UTC` / `13:30 Europe/Istanbul`: second post-match pass for late-finishing
+  matches such as MLS.
+
+The automated allowlist is ten high-liquidity competitions: Premier League, LaLiga,
+Bundesliga, Serie A, Ligue 1, Eredivisie, Primeira Liga, Süper Lig, Championship, and
+MLS. Odds-API.io scans up to five events per league per refresh to avoid starving the
+daily candidate pool.
+
 The workflow writes raw runtime state only inside the runner. It commits encrypted
 PostgreSQL dumps and encrypted cycle reports to the `automation-state` branch; do not
 commit decrypted database dumps, raw reports, or `.env`.

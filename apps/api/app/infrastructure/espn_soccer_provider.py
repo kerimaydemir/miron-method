@@ -390,6 +390,8 @@ class EspnSoccerProvider:
             "primeira": "por.1",
             "liga_portugal": "por.1",
             "super_lig": "tur.1",
+            "championship": "eng.2",
+            "mls": "usa.1",
             "ucl": "uefa.champions",
             "champions_league": "uefa.champions",
         }

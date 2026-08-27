@@ -50,7 +50,9 @@ class Settings(BaseSettings):
     ESPN_ODDS_ENABLED: bool = True
     ESPN_BASE_URL: str = "https://site.api.espn.com/apis/site/v2/sports/soccer"
     ESPN_CORE_BASE_URL: str = "https://sports.core.api.espn.com/v2/sports/soccer"
-    ESPN_SOCCER_LEAGUES: str = "eng.1,esp.1,ita.1,ger.1,fra.1,ned.1,por.1,tur.1,uefa.champions"
+    ESPN_SOCCER_LEAGUES: str = (
+        "eng.1,esp.1,ita.1,ger.1,fra.1,ned.1,por.1,tur.1,eng.2,usa.1,uefa.champions"
+    )
     THESPORTSDB_API_KEY: SecretStr = SecretStr("123")
     THESPORTSDB_BASE_URL: str = "https://www.thesportsdb.com/api/v1/json"
     THESPORTSDB_ENABLED: bool = False

@@ -6,11 +6,11 @@ Accepted on 2026-08-22.
 
 ## Decision
 
-Expose a separate automatic workflow with a fixed eight-league allowlist: Premier
-League, LaLiga, Bundesliga, Serie A, Ligue 1, Eredivisie, Primeira Liga, and Süper
-Lig. Competition membership is explicit; country-risk stereotypes are not used as
-a scoring feature. Mexico, Colombia, lower divisions, cups, and every unlisted
-competition are excluded by policy.
+Expose a separate automatic workflow with a fixed ten-league allowlist: Premier
+League, LaLiga, Bundesliga, Serie A, Ligue 1, Eredivisie, Primeira Liga, Süper
+Lig, Championship, and MLS. Competition membership is explicit; country-risk
+stereotypes are not used as a scoring feature. Mexico, Colombia, cups, and every
+unlisted competition are excluded by policy.
 
 Rank no more than ten current fixtures deterministically. Use Gemini Flash-Lite for
 an adaptive rough shortlist and a different Gemini Flash model as independent

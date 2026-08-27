@@ -12,7 +12,7 @@ from app.domain.fixtures import CanonicalFixture, TriageFactors
 
 logger = logging.getLogger(__name__)
 
-FREE_TOP_LEAGUE_CODES = ("PL", "PD", "BL1", "SA", "FL1", "DED", "PPL")
+FREE_TOP_LEAGUE_CODES = ("PL", "PD", "BL1", "SA", "FL1", "DED", "PPL", "ELC")
 
 
 class _Competition(BaseModel):

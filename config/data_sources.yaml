@@ -63,6 +63,8 @@ sources:
       - netherlands-eredivisie
       - portugal-liga-portugal
       - turkiye-super-lig
+      - england-championship
+      - usa-mls
     markets:
       - h2h
       - draw_no_bet
@@ -155,6 +157,8 @@ allowed_leagues:
   - {key: eredivisie, api_football_seed_id: 88}
   - {key: primeira, api_football_seed_id: 94}
   - {key: super_lig, api_football_seed_id: 203}
+  - {key: championship, api_football_seed_id: 40}
+  - {key: mls, api_football_seed_id: 253}
 
 quota_plan:
   scan_strategy: fixture_and_market_list_once_then_enrich_finalists

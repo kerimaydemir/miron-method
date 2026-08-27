@@ -149,6 +149,24 @@ TOP_LEAGUES: tuple[LeaguePolicy, ...] = (
         odds_sport_key="soccer_turkey_super_league",
         prestige_weight=7,
     ),
+    LeaguePolicy(
+        key="championship",
+        name="Championship",
+        country_code="GB",
+        openligadb_shortcut="eng2",
+        football_data_code="ELC",
+        odds_sport_key="soccer_efl_champ",
+        prestige_weight=6,
+    ),
+    LeaguePolicy(
+        key="mls",
+        name="MLS",
+        country_code="US",
+        openligadb_shortcut="mls",
+        football_data_code=None,
+        odds_sport_key="soccer_usa_mls",
+        prestige_weight=6,
+    ),
 )
 
 
@@ -180,6 +198,8 @@ _ODDS_API_IO_LEAGUE_SLUGS: dict[str, str] = {
     "eredivisie": "netherlands-eredivisie",
     "primeira": "portugal-liga-portugal",
     "super_lig": "turkiye-super-lig",
+    "championship": "england-championship",
+    "mls": "usa-mls",
 }
 
 

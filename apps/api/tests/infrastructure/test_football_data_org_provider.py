@@ -18,7 +18,7 @@ async def test_football_data_org_provider_normalizes_free_top_league_matches() -
         calls += 1
         assert request.url.path == "/v4/matches"
         assert request.headers["X-Auth-Token"] == "test-token"
-        assert request.url.params["competitions"] == "PL,PD,BL1,SA,FL1,DED,PPL"
+        assert request.url.params["competitions"] == "PL,PD,BL1,SA,FL1,DED,PPL,ELC"
         return httpx.Response(
             200,
             json={

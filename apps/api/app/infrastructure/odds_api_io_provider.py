@@ -19,6 +19,8 @@ ODDS_API_IO_LEAGUE_SLUGS: dict[str, str] = {
     "eredivisie": "netherlands-eredivisie",
     "primeira": "portugal-liga-portugal",
     "super_lig": "turkiye-super-lig",
+    "championship": "england-championship",
+    "mls": "usa-mls",
 }
 
 

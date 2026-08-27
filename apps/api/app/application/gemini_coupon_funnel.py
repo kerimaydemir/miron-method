@@ -144,7 +144,7 @@ class GeminiCouponFunnel:
         return GeminiJsonRequest(
             model_id=route.model_id,
             system_instruction=(
-                "Sen MİRON BABA otomatik maç eleme kurulundasın. Yalnızca verilen sekiz lig "
+                "Sen MİRON BABA otomatik maç eleme kurulundasın. Yalnızca verilen on lig "
                 "izin listesindeki maçları değerlendir. Meksika, Kolombiya veya başka lig ekleme. "
                 "Eksik veriyi uydurma. Oran varsa zaman damgalı piyasa görüşü olarak kullan; kesinlik "
                 "sayma. Günlük seçim kotası yoktur ve boş liste geçerli sonuçtur. 1.10 civarı açık "

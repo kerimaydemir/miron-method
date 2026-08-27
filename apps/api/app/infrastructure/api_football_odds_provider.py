@@ -20,11 +20,13 @@ API_FOOTBALL_LEAGUES = {
     "eredivisie": 88,
     "primeira": 94,
     "super_lig": 203,
+    "championship": 40,
+    "mls": 253,
 }
 
 
 class ApiFootballOddsProvider:
-    """Quota-aware pre-match bookmaker adapter for the eight approved leagues."""
+    """Quota-aware pre-match bookmaker adapter for the ten approved leagues."""
 
     source_name = "api_football"
     supported_market_keys: tuple[str, ...] = (

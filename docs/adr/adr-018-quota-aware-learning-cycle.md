@@ -2,17 +2,19 @@
 
 ## Karar
 
-RapidAPI `Free API Live Football Data` BASIC aboneliği, yalnız sekiz izinli ligin
+RapidAPI `Free API Live Football Data` BASIC aboneliği, desteklediği izinli liglerin
 fikstür keşfi ve sınırlı derin kanıtı için ikincil kaynak olarak kullanılır. Anahtar
 yalnız ortam değişkeninde tutulur. Sağlayıcı cevabı boş olduğunda oran, kadro,
-istatistik veya sakatlık verisi üretilmez.
+istatistik veya sakatlık verisi üretilmez. Ana otomatik havuz on ligdir: Premier
+League, LaLiga, Bundesliga, Serie A, Ligue 1, Eredivisie, Primeira Liga, Süper Lig,
+Championship ve MLS.
 
 22 Ağustos 2026 tarihinde abonelik ekranında BASIC limitinin ayda 100 istek olduğu
 doğrulandı. Bu nedenle adaptör:
 
 - en fazla iki yerel günü tek yenilemede çeker;
-- cevaptan yalnız Premier League, LaLiga, Bundesliga, Serie A, Ligue 1,
-  Eredivisie, Primeira Liga ve Süper Lig kayıtlarını geçirir;
+- cevaptan yalnız desteklenen izinli lig kayıtlarını geçirir; Mexico, Colombia ve
+  izin dışı ligleri düşürür;
 - analiz başına varsayılan dört derin istek kullanır;
 - eksik alanları `coverage=false` olarak kilitli kanıta yazar;
 - bookmaker oranı boşsa otomatik kupon hazır kabul etmez.

@@ -1100,6 +1100,8 @@ class AutoCouponService:
         status: str,
     ) -> DailyPredictionReviewItem:
         sound = prediction.confidence >= Decimal(".58") and prediction.bookmaker_count >= 2
+        market_result = cls._realized_market_summary(prediction, fixture)
+        process_note = cls._process_review_note(prediction, status)
         if status == "void":
             verdict = "insufficient_data"
         elif status == "won":
@@ -1112,27 +1114,29 @@ class AutoCouponService:
         if status == "won":
             explanation = (
                 f"Tahmin tuttu: {prediction.market_label} / {prediction.outcome_label}. "
-                f"Final skor {final_score}. Ön maçta piyasa olasılığı ve aday skoru aynı yöne bakıyordu."
+                f"Final skor {final_score}. {market_result} {process_note}"
             )
             lesson = (
-                "Bu sonuç tek başına modelin doğru olduğunu kanıtlamaz; kapanış öncesi fiyat "
-                "ve kadro değişimiyle birlikte tekrar ölçülmeli."
+                "Tutan kupon tek başına modelin doğru olduğunu kanıtlamaz; kapanış oranı, "
+                "kadro/haber değişimi ve seçilen market tipi sonraki örneklerle birlikte izlenmeli."
             )
         elif status == "lost":
             explanation = (
                 f"Tahmin kaybetti: {prediction.market_label} / {prediction.outcome_label}. "
-                f"Final skor {final_score}. Ön maç sinyali gerçekleşen maç akışıyla uyuşmadı."
+                f"Final skor {final_score}. {market_result} {process_note}"
             )
             lesson = (
-                "Kaybeden tahminde ana kontrol noktası; oran-fiyat dengesi, kadro haberi ve "
-                "gol/tempo varsayımı kapanıştan önce zayıflamış mıydı."
+                "Kaybeden seçimde ana kontrol: market çizgisi gereğinden agresif miydi, "
+                "oran bu riski gerçekten ödüyor muydu, kapanış öncesi kadro/haber/tempo sinyali "
+                "zayıflamış mıydı. Son dakika golü veya tek olay etkisi varsa süreç kötü diye "
+                "otomatik damgalanmaz; aynı markette tekrar eden sapma aranır."
             )
         else:
             if prediction.market_decimal_odds is None:
                 explanation = (
                     f"Tahmin ölçüm dışı kaldı: {prediction.market_label} / "
-                    f"{prediction.outcome_label}. Final skor {final_score}; ön maçta canlı "
-                    "bookmaker oranı olmadığı için kupon/isabet metriğine dahil edilmedi."
+                    f"{prediction.outcome_label}. Final skor {final_score}. {market_result} "
+                    "Ön maçta canlı bookmaker oranı olmadığı için kupon/isabet metriğine dahil edilmedi."
                 )
                 lesson = (
                     "Odds olmayan günler veri sürekliliği için saklanır, fakat model "
@@ -1141,7 +1145,8 @@ class AutoCouponService:
             else:
                 explanation = (
                     f"Tahmin void sayıldı: {prediction.market_label} / {prediction.outcome_label}. "
-                    f"Final skor {final_score}; çizgi veya pazar sonucu net kazanç/kayıp üretmedi."
+                    f"Final skor {final_score}. {market_result} Çizgi veya pazar sonucu net "
+                    "kazanç/kayıp üretmedi."
                 )
                 lesson = (
                     "Void sonuçlar isabet oranına kalite kanıtı olarak eklenmez; yalnız veri "
@@ -1169,6 +1174,77 @@ class AutoCouponService:
             explanation=explanation,
             lesson=lesson,
         )
+
+    @staticmethod
+    def _realized_market_summary(prediction: DailyPrediction, fixture: CanonicalFixture) -> str:
+        home = fixture.home_score or 0
+        away = fixture.away_score or 0
+        goals = home + away
+        line = prediction.line
+        pick = prediction.pick.split(":", maxsplit=3)
+        market_key = pick[0] if len(pick) == 4 else prediction.market_key
+        outcome = pick[2] if len(pick) == 4 else ""
+        description = pick[1] if len(pick) == 4 else (prediction.market_description or "")
+        if market_key == "h2h":
+            realized = "MS 1" if home > away else "MS 2" if away > home else "MS X"
+            return f"Gerçekleşen maç sonucu {realized}; skor farkı {abs(home - away)}."
+        if market_key == "draw_no_bet":
+            realized = "beraberlik/iade" if home == away else "ev sahibi" if home > away else "deplasman"
+            return f"Beraberlikte iade pazarı {realized} sonucuna gitti."
+        if market_key == "double_chance":
+            realized = "1X" if home >= away else "X2" if away >= home else "12"
+            return f"Çifte şans açısından finalin kapsadığı ana yön {realized}; skor {home}-{away}."
+        if market_key == "btts":
+            realized = "KG Var" if home > 0 and away > 0 else "KG Yok"
+            return f"Karşılıklı gol sonucu {realized}; iki takım gol dağılımı {home}-{away}."
+        if market_key in ("totals", "alternate_totals", "first_half_totals"):
+            line_text = str(line) if line is not None else "belirsiz"
+            realized = "üst" if line is not None and Decimal(goals) > line else "alt"
+            return f"Toplam gol {goals}; çizgi {line_text}, gerçekleşen yön {realized}."
+        if market_key in ("team_totals", "alternate_team_totals"):
+            target_goals = home if description.casefold() == fixture.home_team.casefold() else away
+            team = prediction.market_description or description or "takım"
+            line_text = str(line) if line is not None else "belirsiz"
+            return f"{team} gol sayısı {target_goals}; takım gol çizgisi {line_text}."
+        if market_key == "spread":
+            handicap = line or Decimal("0")
+            adjusted = (
+                Decimal(home - away) + handicap
+                if outcome == "home"
+                else Decimal(away - home) - handicap
+            )
+            return f"Handikap hesabı {adjusted}; çıplak skor farkı {home - away}."
+        if market_key == "odd_even":
+            realized = "Çift" if goals % 2 == 0 else "Tek"
+            return f"Toplam gol {goals}; tek/çift sonucu {realized}."
+        return f"Market sonucu final skora göre {home}-{away} üzerinden hesaplandı."
+
+    @staticmethod
+    def _process_review_note(prediction: DailyPrediction, status: str) -> str:
+        probability_pct = (prediction.probability * Decimal("100")).quantize(Decimal(".1"))
+        odds_text = (
+            f"oran {prediction.market_decimal_odds}"
+            if prediction.market_decimal_odds is not None
+            else "oran yok"
+        )
+        if prediction.bookmaker_count <= 1:
+            depth = "piyasa derinliği zayıf"
+        elif prediction.bookmaker_count <= 3:
+            depth = "piyasa derinliği orta"
+        else:
+            depth = "piyasa derinliği iyi"
+        if status == "won":
+            return (
+                f"Ön tahmin %{probability_pct}, {odds_text}; {depth}. "
+                "Bu kayıt olumlu örnek olarak hafızaya girer ama tek başına başarı kanıtı sayılmaz."
+            )
+        if status == "lost":
+            return (
+                f"Ön tahmin %{probability_pct}, {odds_text}; {depth}. "
+                "Bu kayıt kayıp sebebiyle negatif örnek olarak hafızaya girer ve aynı market/çizgi "
+                "kombinasyonunda tekrar eden hata aranır."
+            )
+        return f"Ön tahmin %{probability_pct}, {odds_text}; {depth}. Ölçüm dışı/void olarak ayrılır."
 
     @staticmethod
     def _daily_review_report(

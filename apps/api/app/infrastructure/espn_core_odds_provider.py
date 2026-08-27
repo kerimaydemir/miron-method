@@ -21,6 +21,8 @@ ESPN_CORE_LEAGUES: dict[str, str] = {
     "eredivisie": "ned.1",
     "primeira": "por.1",
     "super_lig": "tur.1",
+    "championship": "eng.2",
+    "mls": "usa.1",
 }
 
 
