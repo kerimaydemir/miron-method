@@ -7,6 +7,7 @@ from app.domain.auto_coupon import (
     TOP_LEAGUES,
     AutoCandidate,
     CouponSelection,
+    DailyPrediction,
     FunnelDecision,
     LeaguePolicy,
     MarketOdds,
@@ -760,3 +761,41 @@ def test_daily_journal_can_surface_exotic_watchlist_market_without_coupon_lock()
         )
         == "void"
     )
+
+
+def test_daily_review_explains_totals_loss_with_line_and_final_goals() -> None:
+    finished_fixture = fixture("la1").model_copy(
+        update={
+            "home_team": "Celta Vigo",
+            "away_team": "Osasuna",
+            "home_score": 2,
+            "away_score": 1,
+            "status": "finished",
+        }
+    )
+    prediction = DailyPrediction(
+        prediction_id=uuid4(),
+        fixture=finished_fixture,
+        league=TOP_LEAGUES[1],
+        pick="totals:match:under:2.5",
+        market_key="totals",
+        market_label="Toplam gol",
+        outcome_label="2.5 Alt",
+        line=Decimal("2.5"),
+        probability=Decimal(".62"),
+        market_decimal_odds=Decimal("1.61"),
+        market_fair_probability=Decimal(".59"),
+        bookmaker_count=2,
+        confidence=Decimal(".61"),
+        score=Decimal("75"),
+        tier="watchlist",
+        reasons=("Toplam gol çizgisi izlenebilir.",),
+        risks=("Tempo kırılımı değişebilir.",),
+        observed_at=datetime(2026, 8, 24, 9, 0, tzinfo=UTC),
+    )
+
+    item = AutoCouponService._daily_review_item(prediction, finished_fixture, "lost")
+
+    assert item.process_verdict == "sound_but_unlucky_loss"
+    assert "Toplam gol 3; çizgi 2.5, gerçekleşen yön üst." in item.explanation
+    assert "aynı market/çizgi kombinasyonunda tekrar eden hata aranır" in item.explanation
