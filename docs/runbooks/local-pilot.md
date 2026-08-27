@@ -92,15 +92,21 @@ exists, equal-stake ROI where odds exist, and a short process verdict.
 ## GitHub Actions automation
 
 `.github/workflows/daily-analysis.yml` runs the same Docker stack on GitHub-hosted
-runners, so daily analysis does not depend on the local machine being online. Required
-repository secrets:
+runners, so daily analysis does not depend on the local machine being online. The
+`localhost` URLs inside the workflow point to the temporary GitHub runner, not to the
+developer's Mac. Required repository secrets:
 
-- `GEMINI_API_KEY`
-- `THE_ODDS_API_KEY`
 - `API_FOOTBALL_API_KEY`
+- `ODDS_API_IO_KEY` when the Odds-API.io bookmaker feed is used
 - `RAPIDAPI_KEY` when RapidAPI fixture fallback is used
 - `MIRON_BABA_AUTOMATION_TOKEN`
 - `DATA_ENCRYPTION_KEY`
+- `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` when Telegram delivery is enabled
+
+Scheduled automation keeps `GEMINI_ENABLED=false` and writes an empty
+`GEMINI_API_KEY`, so the unattended daily cycle cannot call paid Gemini routes. If a
+paid LLM route is intentionally tested later, enable it only in a separate local pilot
+or a deliberately reviewed branch.
 
 The workflow writes raw runtime state only inside the runner. It commits encrypted
 PostgreSQL dumps and encrypted cycle reports to the `automation-state` branch; do not
@@ -119,6 +125,6 @@ commit decrypted database dumps, raw reports, or `.env`.
 
 The example environment is disabled by default. The deterministic local mock
 pipeline remains available with zero external model cost and marks its forecast
-as provisional/degraded. The approved local environment uses four verified
-Gemini routes and keeps model verification expiry, per-run cost ceilings, and
-rate-limit errors explicit.
+as provisional/degraded. The unattended GitHub cycle uses live bookmaker odds plus the
+free deterministic market scorer when Gemini is disabled; it must not fabricate prices
+or emit priced coupons without real odds.

@@ -24,6 +24,9 @@ Then save the printed id as `TELEGRAM_CHAT_ID`.
 ## Runtime behavior
 
 - `pre_match` sends the locked coupon summary: total odds, calculated probability, market, pick, and short reason per leg.
+- Pick labels use familiar Türkiye coupon wording where the data supports it: `MS 1`,
+  `MS X`, `MS 2`, `Çifte Şans 1X/12/X2`, `KG Var/Yok`, `2.5 Üst/Alt`,
+  `İY 1/X/2`, `Handikap`, `Korner Handikap`, and `Kart Handikap`.
 - `post_match` sends settlement and learning status: how many records were reviewed, hit rate, Brier score, ROI, and the case-memory note.
 - If either Telegram secret is missing, the GitHub Action continues and logs a safe skip message.
 - Detailed data remains in the encrypted `automation-state` branch and workflow artifacts.

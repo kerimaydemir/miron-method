@@ -1569,13 +1569,54 @@ class AutoCouponService:
 
     @staticmethod
     def _selection_label(quote: MarketQuote) -> str:
-        parts = []
-        if quote.description and quote.description.casefold() != quote.outcome_label.casefold():
-            parts.append(quote.description)
-        parts.append(quote.outcome_label)
-        if quote.point is not None:
-            parts.append(str(quote.point))
-        return " ".join(item for item in parts if item)
+        side_labels = {
+            "home": "1",
+            "draw": "X",
+            "away": "2",
+        }
+        if quote.market_key == "h2h":
+            label = f"MS {side_labels.get(quote.outcome_key, quote.outcome_label)}"
+            if quote.description and quote.outcome_key != "draw":
+                return f"{label} ({quote.description})"
+            return label
+        if quote.market_key == "first_half_h2h":
+            label = f"İY {side_labels.get(quote.outcome_key, quote.outcome_label)}"
+            if quote.description and quote.outcome_key != "draw":
+                return f"{label} ({quote.description})"
+            return label
+        if quote.market_key == "double_chance":
+            return f"Çifte Şans {quote.outcome_key.upper()}"
+        if quote.market_key == "btts":
+            return "KG Var" if quote.outcome_key == "yes" else "KG Yok"
+        if quote.market_key in ("totals", "alternate_totals", "first_half_totals"):
+            prefix = "İY " if quote.market_key == "first_half_totals" else ""
+            line = f"{quote.point} " if quote.point is not None else ""
+            return f"{prefix}{line}{quote.outcome_label}".strip()
+        if quote.market_key in ("team_totals", "alternate_team_totals"):
+            line = f"{quote.point} " if quote.point is not None else ""
+            team = f"{quote.description} " if quote.description else ""
+            return f"{team}{line}{quote.outcome_label}".strip()
+        if quote.market_key in ("spread", "corners_spread", "cards_spread"):
+            market_prefix = {
+                "spread": "Handikap",
+                "corners_spread": "Korner Handikap",
+                "cards_spread": "Kart Handikap",
+            }[quote.market_key]
+            side = side_labels.get(quote.outcome_key, quote.outcome_label)
+            line = f" {quote.point}" if quote.point is not None else ""
+            team = f" ({quote.description})" if quote.description else ""
+            return f"{market_prefix} {side}{line}{team}".strip()
+        if quote.market_key == "draw_no_bet":
+            side = side_labels.get(quote.outcome_key, quote.outcome_label)
+            team = f" ({quote.description})" if quote.description else ""
+            return f"Beraberlikte İade {side}{team}".strip()
+        if quote.market_key == "odd_even":
+            return quote.outcome_label
+        return " ".join(
+            item
+            for item in (quote.description, quote.outcome_label, str(quote.point or ""))
+            if item
+        )
 
     def _forced_daily_coupon(
         self,

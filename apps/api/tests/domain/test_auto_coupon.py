@@ -89,7 +89,7 @@ def test_free_mode_readiness_does_not_require_paid_gemini() -> None:
     assert "ücretsiz maliyet korumalı mod" in readiness.notice
 
 
-def test_selection_label_does_not_repeat_team_name_for_h2h() -> None:
+def test_selection_label_uses_turkish_coupon_style_for_h2h() -> None:
     quote = MarketQuote(
         provider="espn_core_odds",
         observed_at=datetime(2026, 8, 24, 9, 0, tzinfo=UTC),
@@ -103,7 +103,45 @@ def test_selection_label_does_not_repeat_team_name_for_h2h() -> None:
         bookmaker_count=1,
     )
 
-    assert AutoCouponService._selection_label(quote) == "Barcelona"
+    assert AutoCouponService._selection_label(quote) == "MS 1 (Barcelona)"
+
+
+def test_selection_label_uses_turkish_coupon_style_for_common_markets() -> None:
+    observed_at = datetime(2026, 8, 24, 9, 0, tzinfo=UTC)
+    total_quote = MarketQuote(
+        provider="odds_api_io",
+        observed_at=observed_at,
+        market_key="totals",
+        market_label="Toplam gol",
+        outcome_key="over",
+        outcome_label="Üst",
+        decimal_odds=Decimal("1.52"),
+        fair_probability=Decimal(".62"),
+        bookmaker_count=1,
+        point=Decimal("1.75"),
+    )
+    btts_quote = total_quote.model_copy(
+        update={
+            "market_key": "btts",
+            "market_label": "Karşılıklı gol",
+            "outcome_key": "yes",
+            "outcome_label": "Var",
+            "point": None,
+        }
+    )
+    double_chance_quote = total_quote.model_copy(
+        update={
+            "market_key": "double_chance",
+            "market_label": "Çifte şans",
+            "outcome_key": "1x",
+            "outcome_label": "1X",
+            "point": None,
+        }
+    )
+
+    assert AutoCouponService._selection_label(total_quote) == "1.75 Üst"
+    assert AutoCouponService._selection_label(btts_quote) == "KG Var"
+    assert AutoCouponService._selection_label(double_chance_quote) == "Çifte Şans 1X"
 
 
 def test_legacy_league_payload_without_football_data_code_remains_readable() -> None:
