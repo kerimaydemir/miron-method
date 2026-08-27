@@ -655,9 +655,18 @@ class AutoCouponService:
         return settled
 
     async def _refresh_pending_fixture_result(self, pending: Any) -> CanonicalFixture | None:
+        snapshot = getattr(pending, "fixture", None)
+        return await self._refresh_fixture_result(
+            pending.fixture_id,
+            snapshot if isinstance(snapshot, CanonicalFixture) else None,
+        )
+
+    async def _refresh_fixture_result(
+        self, fixture_id: UUID, snapshot: CanonicalFixture | None
+    ) -> CanonicalFixture | None:
         fixture: CanonicalFixture | None = None
         try:
-            fixture = await self._analysis_fixtures.refresh_result(pending.fixture_id)
+            fixture = await self._analysis_fixtures.refresh_result(fixture_id)
         except (KeyError, RuntimeError, httpx.HTTPError):
             fixture = None
         if (
@@ -667,8 +676,7 @@ class AutoCouponService:
             and fixture.away_score is not None
         ):
             return fixture
-        snapshot = getattr(pending, "fixture", None)
-        if not isinstance(snapshot, CanonicalFixture):
+        if snapshot is None:
             return fixture
         refresh_snapshot = getattr(self._odds, "refresh_fixture_result", None)
         if refresh_snapshot is None:
@@ -697,9 +705,10 @@ class AutoCouponService:
             for prediction in run.daily_predictions:
                 if prediction.prediction_id in current_reviewed:
                     continue
-                try:
-                    fixture = await self._analysis_fixtures.refresh_result(prediction.fixture.id)
-                except (KeyError, RuntimeError, httpx.HTTPError):
+                if prediction.fixture.kickoff_at > now:
+                    continue
+                fixture = await self._refresh_fixture_result(prediction.fixture.id, prediction.fixture)
+                if fixture is None:
                     continue
                 if (
                     fixture.status != "finished"
