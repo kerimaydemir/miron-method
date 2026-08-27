@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from uuid import uuid4
 
@@ -11,6 +11,8 @@ from app.infrastructure.espn_core_odds_provider import EspnCoreOddsProvider
 
 @pytest.mark.asyncio
 async def test_espn_core_odds_provider_collects_no_key_market_quotes() -> None:
+    kickoff = datetime.now(UTC) + timedelta(days=1)
+
     def handler(request: httpx.Request) -> httpx.Response:
         path = request.url.path
         if path.endswith("/leagues/esp.1/events"):
@@ -29,7 +31,7 @@ async def test_espn_core_odds_provider_collects_no_key_market_quotes() -> None:
                 200,
                 json={
                     "id": "401882909",
-                    "date": "2026-08-26T17:30Z",
+                    "date": kickoff.isoformat().replace("+00:00", "Z"),
                     "competitions": [
                         {
                             "id": "401882909",
@@ -93,8 +95,8 @@ async def test_espn_core_odds_provider_collects_no_key_market_quotes() -> None:
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
         provider = EspnCoreOddsProvider(client=client, league_paths=("esp.1",))
         pairs = await provider.list_market_fixtures(
-            start_utc=datetime(2026, 8, 26, 15, tzinfo=UTC),
-            end_utc=datetime(2026, 8, 26, 22, tzinfo=UTC),
+            start_utc=kickoff - timedelta(hours=3),
+            end_utc=kickoff + timedelta(hours=3),
         )
 
     assert len(pairs) == 1

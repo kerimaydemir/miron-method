@@ -1,5 +1,6 @@
 import asyncio
 import hashlib
+import logging
 import math
 import re
 import unicodedata
@@ -38,6 +39,8 @@ from app.domain.post_match import MatchResult, result_outcome
 from app.domain.scoring import worthwhile_score
 from app.infrastructure.auto_coupon_repository import AutoCouponRepository
 from app.infrastructure.composite_fixture_provider import CompositeAnalysisFixtureProvider
+
+logger = logging.getLogger(__name__)
 
 BIG_CLUB_MARKERS = (
     "arsenal",
@@ -171,18 +174,15 @@ class AutoCouponService:
         self._app_timezone = ZoneInfo(app_timezone)
 
     async def create(self, *, idempotency_key: str) -> AutoCouponRun:
-        if not self._odds.available and (
-            self._funnel is None
-            or not self._analysis.deep_data_ready
-            or not self._analysis.deep_analysis_ready
-        ):
+        if not self._odds.available:
             raise ValueError("AUTO_COUPON_LIVE_MARKET_REQUIRED")
-        if self._funnel is None:
-            raise ValueError("AUTO_COUPON_GEMINI_REQUIRED")
-        if not self._analysis.deep_data_ready:
-            raise ValueError("AUTO_COUPON_DEEP_DATA_REQUIRED")
-        if not self._analysis.deep_analysis_ready:
-            raise ValueError("AUTO_COUPON_DEEP_ANALYSIS_NOT_READY")
+        if self._funnel is not None:
+            if not self._analysis.deep_data_ready:
+                raise ValueError("AUTO_COUPON_DEEP_DATA_REQUIRED")
+            if not self._analysis.deep_analysis_ready:
+                raise ValueError("AUTO_COUPON_DEEP_ANALYSIS_NOT_READY")
+        elif not self._analysis.deep_data_ready:
+            logger.warning("Deep structured data unavailable; continuing with market-only free mode")
         now = datetime.now(UTC)
         run_id = uuid5(NAMESPACE_URL, f"miron-baba-ai:auto-coupon:{idempotency_key}")
         existing = self._repository.load(run_id)
@@ -264,7 +264,7 @@ class AutoCouponService:
                 else:
                     self._repository.save(auto_run)
                 return auto_run
-        if markets:
+        if markets and self._funnel is not None:
             try:
                 rough, critic, funnel_cost = await asyncio.wait_for(
                     self._funnel.select(initial, memory_context), timeout=45
@@ -275,6 +275,9 @@ class AutoCouponService:
                     "Gemini eleme çağrısı zamanında tamamlanmadı; günlük jurnal kaydedildi, kupon üretilmedi.",
                 )
                 funnel_cost = Decimal("0")
+        elif markets:
+            rough, critic = self._deterministic_funnel(initial)
+            funnel_cost = Decimal("0")
         else:
             rough, critic = self._empty_funnel_after_journal(
                 initial,
@@ -495,11 +498,9 @@ class AutoCouponService:
         blockers: list[str] = []
         if not bookmaker_ready:
             blockers.append("AUTO_COUPON_LIVE_MARKET_REQUIRED")
-        if not gemini_ready:
-            blockers.append("AUTO_COUPON_GEMINI_REQUIRED")
-        if not deep_data_ready:
+        if gemini_ready and not deep_data_ready:
             blockers.append("AUTO_COUPON_DEEP_DATA_REQUIRED")
-        if not deep_ready:
+        if gemini_ready and not deep_ready:
             blockers.append("AUTO_COUPON_DEEP_ANALYSIS_NOT_READY")
         return AutoCouponReadiness(
             ready=not blockers,
@@ -530,7 +531,10 @@ class AutoCouponService:
                 "otomatik kupon üretilmez."
             )
         if not gemini_ready:
-            return "Gemini analiz rotası kapalı; analiz veya kupon üretilmez."
+            return (
+                "Gemini analiz rotası kapalı; ücretsiz maliyet korumalı modda canlı "
+                "bookmaker oranları ve deterministik puanlama ile kupon üretilebilir."
+            )
         if not deep_data_ready:
             return (
                 "API-Football derin veri bağlantısı yok; kadro, form, istatistik, sakatlık, "
@@ -1254,16 +1258,16 @@ class AutoCouponService:
                 input_count=len(candidates),
                 selected_fixture_ids=rough_ids,
                 eliminated_fixture_ids=tuple(item for item in all_ids if item not in rough_ids),
-                rationale="Test modunda puan sırası kullanılarak düşük maliyetli ilk eleme yapıldı.",
-                model_id="deterministic-test-policy",
+                rationale="Ücretsiz maliyet korumalı modda canlı odds, lig kalitesi ve puan sırası ile ilk eleme yapıldı.",
+                model_id="deterministic-free-policy",
             ),
             FunnelDecision(
                 stage="critic",
                 input_count=len(rough_ids),
                 selected_fixture_ids=critic_ids,
                 eliminated_fixture_ids=tuple(item for item in rough_ids if item not in critic_ids),
-                rationale="Test modunda en yüksek üç puan MİRON BABA analizine geçirildi.",
-                model_id="deterministic-test-policy",
+                rationale="Ücretsiz maliyet korumalı modda en yüksek üç aday finalist havuzuna alındı.",
+                model_id="deterministic-free-policy",
             ),
         )
 

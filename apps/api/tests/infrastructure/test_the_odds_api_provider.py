@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import httpx
@@ -9,6 +9,8 @@ from app.infrastructure.the_odds_api_provider import TheOddsApiProvider
 
 @pytest.mark.asyncio
 async def test_provider_normalizes_bookmaker_average_and_removes_overround() -> None:
+    kickoff = datetime.now(UTC) + timedelta(days=1)
+
     async def handler(request: httpx.Request) -> httpx.Response:
         assert request.method == "GET"
         is_wide = "/events/" in request.url.path
@@ -41,7 +43,7 @@ async def test_provider_normalizes_bookmaker_average_and_removes_overround() -> 
             "id": "event-1",
             "sport_key": "soccer_epl",
             "sport_title": "EPL",
-            "commence_time": "2026-08-26T18:00:00Z",
+            "commence_time": kickoff.isoformat().replace("+00:00", "Z"),
             "home_team": "Arsenal",
             "away_team": "Liverpool",
             "bookmakers": [
@@ -93,8 +95,8 @@ async def test_provider_normalizes_bookmaker_average_and_removes_overround() -> 
         client=client,
     )
     items = await provider.list_market_fixtures(
-        start_utc=datetime(2026, 8, 26, tzinfo=UTC),
-        end_utc=datetime(2026, 8, 27, tzinfo=UTC),
+        start_utc=kickoff - timedelta(hours=6),
+        end_utc=kickoff + timedelta(hours=6),
     )
     assert len(items) == 1
     fixture, market = items[0]

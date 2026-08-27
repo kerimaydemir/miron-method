@@ -64,6 +64,31 @@ def test_top_league_allowlist_excludes_mexico_and_colombia() -> None:
     assert league_for_fixture(fixture("col1", "Primera A Colombia")) is None
 
 
+def test_free_mode_readiness_does_not_require_paid_gemini() -> None:
+    class _ReadyOdds:
+        available = True
+        supported_market_keys = ("h2h", "totals")
+
+    class _FreeModeAnalysis:
+        deep_data_ready = True
+        deep_analysis_ready = False
+        implemented_stage_ids = ()
+        required_deep_stage_ids = ("S00",)
+
+    service = AutoCouponService.__new__(AutoCouponService)
+    service._odds = _ReadyOdds()
+    service._analysis = _FreeModeAnalysis()
+    service._funnel = None
+    service._live_fixtures_available = True
+
+    readiness = service.readiness()
+
+    assert readiness.ready is True
+    assert readiness.gemini_analysis is False
+    assert readiness.blockers == ()
+    assert "ücretsiz maliyet korumalı mod" in readiness.notice
+
+
 def test_legacy_league_payload_without_football_data_code_remains_readable() -> None:
     policy = LeaguePolicy.model_validate(
         {
