@@ -125,11 +125,22 @@ def build_pre_match_message(report: Mapping[str, object]) -> str:
                     ]
                 )
     else:
-        lines.extend(["", "Bugün kupon kilitlenmedi. En iyi fikir adayları:"])
-        for index, item_value in enumerate(
-            _as_sequence(report.get("daily_predictions"))[:5],
-            start=1,
-        ):
+        priced_predictions = tuple(
+            item
+            for item in _as_sequence(report.get("daily_predictions"))
+            if _decimal(_as_mapping(item).get("odds")) is not None
+        )
+        if not priced_predictions:
+            lines.extend(
+                [
+                    "",
+                    "Bugün doğrulanmış canlı bookmaker oranı gelmediği için kupon paylaşılmadı. "
+                    "Sistem oran uydurmaz; fixture kaydı yalnız sonuç/öğrenme jurnali olarak saklandı.",
+                ]
+            )
+        else:
+            lines.extend(["", "Bugün kupon kilitlenmedi. En iyi fiyatlı fikir adayları:"])
+        for index, item_value in enumerate(priced_predictions[:5], start=1):
             item = _as_mapping(item_value)
             reasons = _as_sequence(item.get("reasons"))
             reason = _compact(reasons[0] if reasons else "")

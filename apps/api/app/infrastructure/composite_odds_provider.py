@@ -91,24 +91,29 @@ class CompositeOddsProvider:
     ) -> tuple[tuple[CanonicalFixture, MarketOdds], ...]:
         last_error: BaseException | None = None
         results: dict[UUID, tuple[CanonicalFixture, MarketOdds]] = {}
-        for provider in self._providers:
-            if not provider.available:
-                continue
-            try:
-                pairs = await asyncio.wait_for(
+        providers = tuple(provider for provider in self._providers if provider.available)
+        responses = await asyncio.gather(
+            *(
+                asyncio.wait_for(
                     provider.list_market_fixtures(start_utc=start_utc, end_utc=end_utc),
                     timeout=self._provider_timeout_seconds,
                 )
-            except (TimeoutError, httpx.HTTPError, RuntimeError, ValueError) as error:
-                last_error = error
+                for provider in providers
+            ),
+            return_exceptions=True,
+        )
+        for provider, response in zip(providers, responses, strict=True):
+            if isinstance(response, BaseException):
+                last_error = response
                 logger.warning(
                     "Bookmaker provider failed; trying fallback",
                     extra={
                         "provider": provider.source_name,
-                        "error_type": type(error).__name__,
+                        "error_type": type(response).__name__,
                     },
                 )
                 continue
+            pairs = cast(tuple[tuple[CanonicalFixture, MarketOdds], ...], response)
             if pairs:
                 results.update({fixture.id: (fixture, market) for fixture, market in pairs})
         if results:

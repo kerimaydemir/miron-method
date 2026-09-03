@@ -102,3 +102,27 @@ def test_split_message_respects_telegram_limit() -> None:
 
     assert len(chunks) > 1
     assert all(len(chunk) <= 4096 for chunk in chunks)
+
+
+def test_pre_match_without_live_odds_does_not_pose_fixture_as_coupon() -> None:
+    message = build_message(
+        {
+            "phase": "pre_match",
+            "day": "2026-09-04",
+            "daily_prediction_count": 1,
+            "selection_count": 0,
+            "ticket_count": 0,
+            "notice": "Canlı bookmaker oranı alınamadı.",
+            "daily_predictions": [
+                {
+                    "fixture": "VfB Stuttgart - 1. FC Köln",
+                    "market": "Oran bekleniyor",
+                    "pick": "Kupon kilidi yok",
+                    "odds": None,
+                }
+            ],
+        }
+    )
+
+    assert "doğrulanmış canlı bookmaker oranı gelmedi" in message
+    assert "VfB Stuttgart - 1. FC Köln" not in message

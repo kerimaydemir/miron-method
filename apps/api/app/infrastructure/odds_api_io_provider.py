@@ -100,7 +100,13 @@ class OddsApiIoProvider:
         if self._owns_client:
             await self._client.aclose()
 
-    async def refresh(self, *, force: bool = False) -> None:
+    async def refresh(
+        self,
+        *,
+        force: bool = False,
+        start_utc: datetime | None = None,
+        end_utc: datetime | None = None,
+    ) -> None:
         if not self.available:
             return
         async with self._refresh_lock:
@@ -124,6 +130,13 @@ class OddsApiIoProvider:
                     continue
                 success_count += 1
                 events.extend(response)
+            if start_utc is not None and end_utc is not None:
+                events = [
+                    event
+                    for event in events
+                    if start_utc <= self._as_utc(event.date) < end_utc
+                    and event.status.casefold() in {"pending", "scheduled"}
+                ]
             for chunk_start in range(0, len(events), 10):
                 event_chunk = events[chunk_start : chunk_start + 10]
                 try:
@@ -161,7 +174,7 @@ class OddsApiIoProvider:
     async def list_market_fixtures(
         self, *, start_utc: datetime, end_utc: datetime
     ) -> tuple[tuple[CanonicalFixture, MarketOdds], ...]:
-        await self.refresh()
+        await self.refresh(start_utc=start_utc, end_utc=end_utc)
         return tuple(
             (fixture, self._markets[fixture.id])
             for fixture in sorted(self._fixtures.values(), key=lambda item: item.kickoff_at)
@@ -356,6 +369,10 @@ class OddsApiIoProvider:
             except ValueError as error:
                 raise ValueError("ODDS_API_IO_INVALID_RESPONSE") from error
         raise RuntimeError("ODDS_API_IO_RATE_LIMITED")
+
+    @staticmethod
+    def _as_utc(value: datetime) -> datetime:
+        return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
 
     @classmethod
     def _normalize_event(
