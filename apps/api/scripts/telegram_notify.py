@@ -74,55 +74,20 @@ def _title(report: Mapping[str, object]) -> str:
 
 
 def build_pre_match_message(report: Mapping[str, object]) -> str:
-    lines = [
-        _title(report),
-        "",
-        f"Run: {_text(report.get('run_id'))}",
-        (
-            "Özet: "
-            f"{_text(report.get('daily_prediction_count'), '0')} aday fikir, "
-            f"{_text(report.get('selection_count'), '0')} seçim, "
-            f"{_text(report.get('ticket_count'), '0')} kupon"
-        ),
-    ]
-    notice = _text(report.get("notice"), "")
-    if notice:
-        lines.extend(["", f"Not: {_compact(notice, 260)}"])
+    lines = [_title(report)]
 
     tickets = _as_sequence(report.get("tickets"))
     if tickets:
         for ticket_index, ticket_value in enumerate(tickets, start=1):
             ticket = _as_mapping(ticket_value)
-            lines.extend(
-                [
-                    "",
-                    f"Kupon {ticket_index}: {_text(ticket.get('label'))}",
-                    (
-                        "Toplam: "
-                        f"oran {_odds(ticket.get('combined_decimal_odds'))} | "
-                        f"hesap ihtimali {_percent(ticket.get('combined_probability'))} | "
-                        f"risk {_text(ticket.get('risk_label'))}"
-                    ),
-                ]
+            lines.append(
+                f"Kupon {ticket_index} | Toplam oran: {_odds(ticket.get('combined_decimal_odds'))}"
             )
             for leg_index, leg_value in enumerate(_as_sequence(ticket.get("legs")), start=1):
                 leg = _as_mapping(leg_value)
-                lines.extend(
-                    [
-                        (
-                            f"{leg_index}) {_text(leg.get('fixture'))} "
-                            f"({_text(leg.get('league'))})"
-                        ),
-                        (
-                            f"   Pazar: {_text(leg.get('market'))} → "
-                            f"{_text(leg.get('pick'))}"
-                        ),
-                        (
-                            f"   Oran: {_odds(leg.get('odds'))} | "
-                            f"İhtimal: {_percent(leg.get('probability'))}"
-                        ),
-                        f"   Neden: {_compact(leg.get('reason'))}",
-                    ]
+                lines.append(
+                    f"{leg_index}) {_text(leg.get('fixture'))} — "
+                    f"{_text(leg.get('pick'))} @{_odds(leg.get('odds'))}"
                 )
     else:
         priced_predictions = tuple(
@@ -131,69 +96,24 @@ def build_pre_match_message(report: Mapping[str, object]) -> str:
             if _decimal(_as_mapping(item).get("odds")) is not None
         )
         if not priced_predictions:
-            lines.extend(
-                [
-                    "",
-                    "Bugün doğrulanmış canlı bookmaker oranı gelmediği için kupon paylaşılmadı. "
-                    "Sistem oran uydurmaz; fixture kaydı yalnız sonuç/öğrenme jurnali olarak saklandı.",
-                ]
-            )
+            lines.append("Bugün doğrulanmış oran yok; kupon paylaşılmadı.")
         else:
-            lines.extend(["", "Bugün kupon kilitlenmedi. En iyi fiyatlı fikir adayları:"])
-        for index, item_value in enumerate(priced_predictions[:5], start=1):
+            lines.append("Kupon kilitlenmedi. En iyi fiyatlı fikirler:")
+        for index, item_value in enumerate(priced_predictions[:3], start=1):
             item = _as_mapping(item_value)
-            reasons = _as_sequence(item.get("reasons"))
-            reason = _compact(reasons[0] if reasons else "")
-            lines.extend(
-                [
-                    (
-                        f"{index}) {_text(item.get('fixture'))} — "
-                        f"{_text(item.get('market'))} → {_text(item.get('pick'))}"
-                    ),
-                    (
-                        f"   Oran: {_odds(item.get('odds'))} | "
-                        f"İhtimal: {_percent(item.get('probability'))} | "
-                        f"Tier: {_text(item.get('tier'))}"
-                    ),
-                    f"   Neden: {reason}",
-                ]
+            lines.append(
+                f"{index}) {_text(item.get('fixture'))} — {_text(item.get('pick'))} "
+                f"@{_odds(item.get('odds'))}"
             )
-
-    lines.extend(
-        [
-            "",
-            "Disiplin notu: Forced banko modu aktifse bu mesaj %70 garanti iddiası değildir; "
-            "oran/değer bulmak için en güvenli görünen kombinasyonu kilitler.",
-        ]
-    )
     return "\n".join(lines).strip()
 
 
 def build_post_match_message(report: Mapping[str, object]) -> str:
     performance = _as_mapping(report.get("performance"))
-    lines = [
-        _title(report),
-        "",
-        (
-            "Dün/önceki açık kayıtlar: "
-            f"{_text(report.get('settled_count'), '0')} kupon/analiz kapandı, "
-            f"{_text(report.get('daily_reviewed_count'), '0')} günlük fikir tekrar incelendi."
-        ),
-    ]
-    if performance:
-        lines.extend(
-            [
-                "",
-                "Genel performans:",
-                f"- Örnek: {_text(performance.get('settled_count'), '0')}",
-                f"- İsabet: {_percent(performance.get('hit_rate'))}",
-                f"- Ortalama Brier: {_text(performance.get('mean_brier_score'))}",
-                f"- ROI: {_percent(performance.get('roi'))}",
-            ]
-        )
+    lines = [_title(report)]
     ticket_reviews = _as_sequence(report.get("ticket_reviews"))
     if ticket_reviews:
-        lines.extend(["", "Kupon sonuçları:"])
+        lines.append("Kupon sonucu:")
         icons = {
             "won": "✅ Tuttu",
             "lost": "❌ Kaybetti",
@@ -209,43 +129,27 @@ def build_post_match_message(report: Mapping[str, object]) -> str:
             for leg_value in _as_sequence(ticket.get("legs")):
                 leg = _as_mapping(leg_value)
                 lines.append(
-                    f"  • {_text(leg.get('fixture'))}: {_text(leg.get('pick'))} "
-                    f"@{_odds(leg.get('odds'))} | skor {_text(leg.get('score'))} | "
+                    f"• {_text(leg.get('fixture'))}: {_text(leg.get('pick'))} "
+                    f"@{_odds(leg.get('odds'))} | {_text(leg.get('score'))} | "
                     f"{icons.get(_text(leg.get('status')), '⏳ Bekliyor')}"
                 )
 
     daily_reviews = _as_sequence(report.get("daily_reviews"))
     if daily_reviews:
-        lines.extend(["", "Bugün sonuçlanan analizler:"])
+        lines.append("Diğer sonuçlar:")
         icons = {"won": "✅ Tuttu", "lost": "❌ Kaybetti", "void": "➖ Void"}
-        for review_value in daily_reviews[:12]:
+        for review_value in daily_reviews[:3]:
             review = _as_mapping(review_value)
-            lines.extend(
-                [
-                    (
-                        f"- {icons.get(_text(review.get('status')), '•')}: "
-                        f"{_text(review.get('fixture'))} | {_text(review.get('market'))} → "
-                        f"{_text(review.get('pick'))} @{_odds(review.get('odds'))} | "
-                        f"skor {_text(review.get('score'))}"
-                    ),
-                    f"  Neden: {_compact(review.get('explanation'), 420)}",
-                    f"  Ders: {_compact(review.get('lesson'), 280)}",
-                ]
+            lines.append(
+                f"• {icons.get(_text(review.get('status')), '•')} "
+                f"{_text(review.get('fixture'))} — {_text(review.get('pick'))} "
+                f"@{_odds(review.get('odds'))} | {_text(review.get('score'))}"
             )
-    elif _text(report.get("daily_reviewed_count"), "0") != "0":
-        lines.extend(
-            [
-                "",
-                "Bu çalışmada sonuçlanan analiz var; ayrıntı yüklenemediği için sadece performans özeti gönderildi.",
-            ]
+    if performance:
+        lines.append(
+            f"Genel: {_text(performance.get('wins'), '0')}/"
+            f"{_text(performance.get('settled'), '0')} | %{_percent(performance.get('hit_rate')).rstrip('%')}"
         )
-    lines.extend(
-        [
-            "",
-            "Sistem notu: Sonuçlar veritabanına ve encrypted GitHub state’e işlendi; "
-            "bir sonraki pre-match çalışması geçmiş dersleri case memory olarak kullanacak.",
-        ]
-    )
     return "\n".join(lines).strip()
 
 

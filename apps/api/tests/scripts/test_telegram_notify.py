@@ -36,10 +36,10 @@ def test_pre_match_ticket_message_contains_coupon_summary() -> None:
     )
 
     assert "MİRON BABA AI günlük kupon" in message
-    assert "Zorunlu günlük banko ikilisi" in message
-    assert "Toplam: oran 2.01 | hesap ihtimali 42.0%" in message
-    assert "Barcelona - Athletic Club" in message
-    assert "İhtimal: 70.7%" in message
+    assert "Kupon 1 | Toplam oran: 2.01" in message
+    assert "Barcelona - Athletic Club — Barcelona @1.33" in message
+    assert "Run:" not in message
+    assert "Neden:" not in message
 
 
 def test_post_match_message_contains_learning_summary() -> None:
@@ -50,10 +50,9 @@ def test_post_match_message_contains_learning_summary() -> None:
             "settled_count": 3,
             "daily_reviewed_count": 7,
             "performance": {
-                "settled_count": 12,
+                "settled": 12,
+                "wins": 7,
                 "hit_rate": "0.5833",
-                "mean_brier_score": "0.211",
-                "roi": "0.082",
             },
             "ticket_reviews": [
                 {
@@ -87,14 +86,11 @@ def test_post_match_message_contains_learning_summary() -> None:
     )
 
     assert "sonuç kontrolü" in message
-    assert "3 kupon/analiz kapandı" in message
-    assert "İsabet: 58.3%" in message
-    assert "ROI: 8.2%" in message
-    assert "case memory" in message
-    assert "Kupon sonuçları:" in message
+    assert "Kupon sonucu:" in message
     assert "Günlük ikili | toplam oran 2.04" in message
     assert "Valencia - Sevilla" in message
-    assert "Toplam gol üçe çıktığı" in message
+    assert "Genel: 7/12 | %58.3" in message
+    assert "Neden:" not in message
 
 
 def test_split_message_respects_telegram_limit() -> None:
@@ -124,5 +120,5 @@ def test_pre_match_without_live_odds_does_not_pose_fixture_as_coupon() -> None:
         }
     )
 
-    assert "doğrulanmış canlı bookmaker oranı gelmedi" in message
+    assert "Bugün doğrulanmış oran yok; kupon paylaşılmadı." in message
     assert "VfB Stuttgart - 1. FC Köln" not in message

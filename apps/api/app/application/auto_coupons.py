@@ -1702,16 +1702,19 @@ class AutoCouponService:
         now: datetime,
     ) -> tuple[tuple[CouponSelection, ...], tuple[CouponTicket, ...]]:
         leg_pool: list[tuple[Decimal, AutoCandidate, MarketQuote, Decimal, Decimal]] = []
+        market_penalties = self._market_learning_penalties()
         for candidate in candidates:
             market = markets.get(candidate.fixture.id)
             if market is None:
                 continue
             for quote in market.quotes:
-                if now - quote.observed_at > timedelta(hours=24):
+                if now - quote.observed_at > timedelta(hours=6):
                     continue
-                if quote.bookmaker_count < 1 or not self._settleable_market(quote.market_key):
+                if quote.bookmaker_count < 2 or not self._settleable_market(quote.market_key):
                     continue
                 if quote.decimal_odds < Decimal("1.30") or quote.decimal_odds > Decimal("2.05"):
+                    continue
+                if quote.market_key == "h2h" and quote.decimal_odds < Decimal("1.45"):
                     continue
                 probability = self._journal_probability(candidate, quote)
                 edge = probability - quote.fair_probability
@@ -1724,6 +1727,7 @@ class AutoCouponService:
                     + safety_bonus
                     + Decimal(min(quote.bookmaker_count, 6))
                     - price_penalty
+                    - market_penalties.get(quote.market_key, Decimal("0"))
                 ).quantize(Decimal(".01"), rounding=ROUND_HALF_UP)
                 leg_pool.append((score, candidate, quote, probability, edge))
         if len({self._fixture_match_key(item[1].fixture) for item in leg_pool}) < 2:
@@ -1796,6 +1800,32 @@ class AutoCouponService:
             risk_label="orta" if combined_probability >= Decimal(".55") else "yüksek",
         )
         return selections, (ticket,)
+
+    def _market_learning_penalties(self) -> dict[str, Decimal]:
+        """Reduce forced-mode exposure to markets with enough negative settled evidence.
+
+        A small sample never bans a market. Once a market has at least four
+        settled selections and both hit rate and flat-stake ROI are negative,
+        it receives a transparent ranking penalty on the next daily run.
+        """
+        repository = getattr(self, "_repository", None)
+        if repository is None:
+            return {}
+        try:
+            performance = repository.performance()
+        except (AttributeError, RuntimeError, ValueError):
+            return {}
+        penalties: dict[str, Decimal] = {}
+        for market in performance.by_market:
+            if (
+                market.settled >= 4
+                and market.hit_rate is not None
+                and market.equal_stake_roi is not None
+                and market.hit_rate <= Decimal(".50")
+                and market.equal_stake_roi < 0
+            ):
+                penalties[market.market_key] = Decimal("14")
+        return penalties
 
     @classmethod
     def _dedupe_candidates_by_match(

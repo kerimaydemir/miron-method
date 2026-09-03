@@ -125,7 +125,7 @@ def test_selection_label_uses_turkish_coupon_style_for_h2h() -> None:
         description="Barcelona",
         decimal_odds=Decimal("1.22"),
         fair_probability=Decimal(".78"),
-        bookmaker_count=1,
+        bookmaker_count=2,
     )
 
     assert AutoCouponService._selection_label(quote) == "MS 1 (Barcelona)"
@@ -142,7 +142,7 @@ def test_selection_label_uses_turkish_coupon_style_for_common_markets() -> None:
         outcome_label="Üst",
         decimal_odds=Decimal("1.52"),
         fair_probability=Decimal(".62"),
-        bookmaker_count=1,
+        bookmaker_count=2,
         point=Decimal("1.75"),
     )
     btts_quote = total_quote.model_copy(
@@ -337,7 +337,7 @@ def test_forced_daily_coupon_combines_two_banko_legs_when_strict_gate_is_empty()
         point=Decimal("0.5"),
         decimal_odds=Decimal("1.48"),
         fair_probability=Decimal(".62"),
-        bookmaker_count=1,
+        bookmaker_count=2,
     )
     second_quote = MarketQuote(
         provider="espn_core_odds",
@@ -347,9 +347,9 @@ def test_forced_daily_coupon_combines_two_banko_legs_when_strict_gate_is_empty()
         outcome_key="home",
         outcome_label="Ev sahibi",
         description="Home Club",
-        decimal_odds=Decimal("1.33"),
+        decimal_odds=Decimal("1.48"),
         fair_probability=Decimal(".72"),
-        bookmaker_count=1,
+        bookmaker_count=2,
     )
     service = AutoCouponService.__new__(AutoCouponService)
     service._forced_min_combined_odds = Decimal("1.80")
@@ -368,7 +368,7 @@ def test_forced_daily_coupon_combines_two_banko_legs_when_strict_gate_is_empty()
     assert len(selections) == 2
     assert [item.kind for item in tickets] == ["double"]
     assert tickets[0].label == "Zorunlu günlük banko ikilisi"
-    assert tickets[0].combined_decimal_odds == Decimal("1.97")
+    assert tickets[0].combined_decimal_odds == Decimal("2.19")
     assert tickets[0].combined_probability < Decimal(".70")
     assert "Forced mod %70 garanti iddiası değildir" in selections[0].uncertainty
 
@@ -410,7 +410,7 @@ def test_forced_daily_coupon_avoids_tiny_h2h_favorite_when_richer_leg_exists() -
         description="Barcelona",
         decimal_odds=Decimal("1.22"),
         fair_probability=Decimal(".78"),
-        bookmaker_count=1,
+        bookmaker_count=2,
     )
     richer_spread = low_h2h.model_copy(
         update={
@@ -433,12 +433,12 @@ def test_forced_daily_coupon_avoids_tiny_h2h_favorite_when_richer_leg_exists() -
         point=Decimal("2.5"),
         decimal_odds=Decimal("1.61"),
         fair_probability=Decimal(".59"),
-        bookmaker_count=1,
+        bookmaker_count=2,
     )
     first_market = MarketOdds(
         provider="odds_api_io",
         observed_at=now,
-        bookmaker_count=1,
+        bookmaker_count=2,
         home_decimal=Decimal("1.22"),
         draw_decimal=Decimal("6.00"),
         away_decimal=Decimal("12.00"),
@@ -502,7 +502,7 @@ def test_forced_daily_coupon_rejects_duplicate_match_from_different_providers() 
         point=Decimal("1"),
         decimal_odds=Decimal("1.23"),
         fair_probability=Decimal(".77"),
-        bookmaker_count=1,
+        bookmaker_count=2,
     )
     duplicate_quote = MarketQuote(
         provider="espn_core_odds",
