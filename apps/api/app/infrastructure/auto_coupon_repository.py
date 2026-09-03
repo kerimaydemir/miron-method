@@ -94,7 +94,7 @@ class NullAutoCouponRepository:
         away_score: int,
         post_match: dict[str, object],
     ) -> None:
-        del autopsy_id, home_score, away_score, post_match
+        del autopsy_id
         run = self._runs.get(auto_run_id)
         if run is None:
             return
@@ -103,6 +103,9 @@ class NullAutoCouponRepository:
                 update={
                     "settlement_status": status,
                     "process_verdict": _process_verdict(item, status),
+                    "final_home_score": home_score,
+                    "final_away_score": away_score,
+                    "settlement_explanation": _settlement_explanation(post_match),
                 }
             )
             if item.fixture.id == fixture_id
@@ -430,10 +433,15 @@ class PostgresAutoCouponRepository:
                 cast(UUID, item["fixture_id"]): (
                     str(item["settlement_status"]),
                     str(item["process_verdict"]),
+                    cast(int | None, item["final_home_score"]),
+                    cast(int | None, item["final_away_score"]),
+                    _settlement_explanation(item["post_match_json"]),
                 )
                 for item in connection.execute(
                     text("""
-                    SELECT fixture_id, settlement_status, process_verdict FROM coupon_selections
+                    SELECT fixture_id, settlement_status, process_verdict,
+                           final_home_score, final_away_score, post_match_json
+                    FROM coupon_selections
                     WHERE auto_coupon_run_id = :id
                     """),
                     {"id": run_id},
@@ -443,8 +451,11 @@ class PostgresAutoCouponRepository:
         selections = tuple(
             item.model_copy(
                 update={
-                    "settlement_status": statuses.get(item.fixture.id, ("pending", "pending"))[0],
-                    "process_verdict": statuses.get(item.fixture.id, ("pending", "pending"))[1],
+                    "settlement_status": statuses.get(item.fixture.id, ("pending", "pending", None, None, None))[0],
+                    "process_verdict": statuses.get(item.fixture.id, ("pending", "pending", None, None, None))[1],
+                    "final_home_score": statuses.get(item.fixture.id, ("pending", "pending", None, None, None))[2],
+                    "final_away_score": statuses.get(item.fixture.id, ("pending", "pending", None, None, None))[3],
+                    "settlement_explanation": statuses.get(item.fixture.id, ("pending", "pending", None, None, None))[4],
                 }
             )
             for item in run.selections
@@ -625,6 +636,16 @@ class PostgresAutoCouponRepository:
             ).mappings()
             records = [dict(row) for row in rows]
         return _performance_from_records(records)
+
+
+def _settlement_explanation(post_match: object) -> str | None:
+    if not isinstance(post_match, dict):
+        return None
+    explanation = post_match.get("explanation")
+    if not isinstance(explanation, str):
+        return None
+    normalized = " ".join(explanation.split())
+    return normalized or None
 
 
 def _process_verdict(selection: object, status: str) -> str:

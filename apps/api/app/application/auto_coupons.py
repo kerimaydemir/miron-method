@@ -617,9 +617,8 @@ class AutoCouponService:
                         "result_verdict": settlement_status,
                         "process_verdict": "forced_daily_score_settlement",
                         "realized_outcome": actual,
-                        "explanation": (
-                            "Forced günlük kupon derin lock üretmediği için settlement doğrudan "
-                            "maç skoru ve pazar kuralıyla yapıldı."
+                        "explanation": self._forced_settlement_explanation(
+                            pending.pick, fixture, settlement_status
                         ),
                     },
                 )
@@ -655,7 +654,7 @@ class AutoCouponService:
                         "lesson": autopsy.lesson.model_dump(mode="json"),
                     },
                 )
-                settled += 1
+            settled += 1
         return settled
 
     async def _refresh_pending_fixture_result(self, pending: Any) -> CanonicalFixture | None:
@@ -802,6 +801,43 @@ class AutoCouponService:
             return "void"
         realized = "over" if goals > line else "under"
         return "won" if outcome == realized else "lost"
+
+    @staticmethod
+    def _forced_settlement_explanation(
+        pick: str, fixture: CanonicalFixture, status: str
+    ) -> str:
+        """Create an evidence-bound explanation for forced tickets.
+
+        Forced tickets do not have the expensive deep-analysis lock, so their
+        review must not invent tactical or late-goal narratives. It records
+        only the observed score and the market rule that did or did not land.
+        """
+        home = fixture.home_score if fixture.home_score is not None else 0
+        away = fixture.away_score if fixture.away_score is not None else 0
+        score = f"{fixture.home_team} {home}-{away} {fixture.away_team}"
+        parts = pick.split(":", maxsplit=3)
+        market_key = parts[0] if len(parts) == 4 else "market"
+        line = parts[3] if len(parts) == 4 else ""
+        total_goals = home + away
+        if market_key in ("totals", "alternate_totals", "first_half_totals"):
+            detail = f"Toplam gol {total_goals}; seçilen çizgi {line}."
+        elif market_key in ("spread", "corners_spread", "cards_spread"):
+            detail = f"Skor farkı {home - away}; seçilen handikap çizgisi {line}."
+        elif market_key == "btts":
+            detail = f"Karşılıklı gol {'var' if home > 0 and away > 0 else 'yok'}."
+        elif market_key == "draw_no_bet":
+            detail = "Maç sonucu beraberlik" if home == away else "Maç sonucu beraberlik değil."
+        elif market_key in ("h2h", "double_chance"):
+            direction = "ev sahibi" if home > away else "deplasman" if away > home else "beraberlik"
+            detail = f"Gerçekleşen yön {direction}."
+        else:
+            detail = "Pazar kuralı nihai skor üzerinden hesaplandı."
+        verdict = "tuttu" if status == "won" else "kaybetti" if status == "lost" else "void oldu"
+        return (
+            f"Forced günlük bacak {verdict}. Nihai skor: {score}. {detail} "
+            "Gol dakikası veya kadro/haber olayı doğrulanmadığı için neden uydurulmadı; "
+            "sonuç aynı marketin sonraki seçim cezasına dahil edildi."
+        )
 
     async def _rank_candidates(
         self,

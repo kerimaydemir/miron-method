@@ -14,7 +14,6 @@ from app.domain.auto_coupon import (
     AutoCouponReadiness,
     AutoCouponRun,
     CouponSelection,
-    DailyPredictionReviewItem,
 )
 from app.infrastructure.auto_coupon_runtime import auto_coupon_service
 from app.settings import get_settings
@@ -33,8 +32,21 @@ def _reviewed_prediction_ids(runs: tuple[AutoCouponRun, ...]) -> set[UUID]:
     }
 
 
+def _settled_selection_ids(runs: tuple[AutoCouponRun, ...]) -> set[tuple[UUID, UUID]]:
+    """Identify freshly settled coupon legs independently from the daily journal."""
+    return {
+        (run.run_id, selection.fixture.id)
+        for run in runs
+        for selection in run.selections
+        if selection.settlement_status != "pending"
+    }
+
+
 def _daily_review_payloads(
-    runs: tuple[AutoCouponRun, ...], *, newly_reviewed: set[UUID]
+    runs: tuple[AutoCouponRun, ...],
+    *,
+    newly_reviewed: set[UUID],
+    newly_settled: set[tuple[UUID, UUID]],
 ) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
     """Build Telegram-ready settlement details for predictions and coupon tickets."""
     daily_reviews: list[dict[str, object]] = []
@@ -44,7 +56,6 @@ def _daily_review_payloads(
         if report is None:
             continue
         predictions = {item.prediction_id: item for item in run.daily_predictions}
-        reviews = {item.prediction_id: item for item in report.items}
         fresh = [item for item in report.items if item.prediction_id in newly_reviewed]
         for review in fresh:
             prediction = predictions.get(review.prediction_id)
@@ -75,28 +86,12 @@ def _daily_review_payloads(
                 for item in run.selections
                 if item.fixture.id == fixture_id
             )
-            ticket_items: list[tuple[CouponSelection, DailyPredictionReviewItem]] = []
-            for selection in selections:
-                matching_prediction = next(
-                    (
-                        prediction
-                        for prediction in run.daily_predictions
-                        if prediction.fixture.id == selection.fixture.id
-                        and prediction.pick == selection.pick
-                    ),
-                    None,
-                )
-                if matching_prediction is None:
-                    continue
-                review = reviews.get(matching_prediction.prediction_id)
-                if review is not None:
-                    ticket_items.append((selection, review))
-            if not ticket_items or not any(
-                review.prediction_id in newly_reviewed for _, review in ticket_items
+            if not selections or not any(
+                (run.run_id, selection.fixture.id) in newly_settled for selection in selections
             ):
                 continue
-            statuses = {review.status for _, review in ticket_items}
-            if len(ticket_items) != len(selections):
+            statuses = {selection.settlement_status for selection in selections}
+            if "pending" in statuses:
                 ticket_status = "pending"
             elif "lost" in statuses:
                 ticket_status = "lost"
@@ -119,10 +114,15 @@ def _daily_review_payloads(
                             "odds": str(selection.market_decimal_odds)
                             if selection.market_decimal_odds is not None
                             else None,
-                            "status": review.status,
-                            "score": f"{review.final_home_score}-{review.final_away_score}",
+                            "status": selection.settlement_status,
+                            "score": (
+                                f"{selection.final_home_score}-{selection.final_away_score}"
+                                if selection.final_home_score is not None
+                                and selection.final_away_score is not None
+                                else "-"
+                            ),
                         }
-                        for selection, review in ticket_items
+                        for selection in selections
                     ],
                 }
             )
@@ -258,13 +258,16 @@ async def run_daily_automation(
         }
     before_runs = auto_coupon_service.journal(limit=45)
     before_reviewed = _reviewed_prediction_ids(before_runs)
+    before_settled = _settled_selection_ids(before_runs)
     settled = await auto_coupon_service.settle_pending()
     reviewed = await auto_coupon_service.review_daily_predictions()
     after_runs = auto_coupon_service.journal(limit=45)
     after_reviewed = _reviewed_prediction_ids(after_runs)
+    after_settled = _settled_selection_ids(after_runs)
     daily_reviews, ticket_reviews = _daily_review_payloads(
         after_runs,
         newly_reviewed=after_reviewed - before_reviewed,
+        newly_settled=after_settled - before_settled,
     )
     return {
         "phase": phase,

@@ -289,6 +289,9 @@ class CouponSelection(BaseModel):
     uncertainty: str = Field(min_length=8, max_length=500)
     rationale: DecisionRationale | None = None
     settlement_status: Literal["pending", "won", "lost", "void"] = "pending"
+    final_home_score: int | None = Field(default=None, ge=0)
+    final_away_score: int | None = Field(default=None, ge=0)
+    settlement_explanation: str | None = Field(default=None, min_length=8, max_length=900)
     process_verdict: Literal[
         "pending",
         "sound_win",

@@ -799,3 +799,17 @@ def test_daily_review_explains_totals_loss_with_line_and_final_goals() -> None:
     assert item.process_verdict == "sound_but_unlucky_loss"
     assert "Toplam gol 3; çizgi 2.5, gerçekleşen yön üst." in item.explanation
     assert "aynı market/çizgi kombinasyonunda tekrar eden hata aranır" in item.explanation
+
+
+def test_forced_settlement_explains_a_loss_from_observed_score_without_inventing_events() -> None:
+    finished_fixture = fixture("la1").model_copy(
+        update={"home_score": 2, "away_score": 1, "status": "finished"}
+    )
+
+    explanation = AutoCouponService._forced_settlement_explanation(
+        "totals:match:under:2.5", finished_fixture, "lost"
+    )
+
+    assert "kaybetti" in explanation
+    assert "Toplam gol 3; seçilen çizgi 2.5." in explanation
+    assert "neden uydurulmadı" in explanation
