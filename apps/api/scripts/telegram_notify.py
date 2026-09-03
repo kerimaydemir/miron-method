@@ -180,6 +180,54 @@ def build_post_match_message(report: Mapping[str, object]) -> str:
                 f"- ROI: {_percent(performance.get('roi'))}",
             ]
         )
+    ticket_reviews = _as_sequence(report.get("ticket_reviews"))
+    if ticket_reviews:
+        lines.extend(["", "Kupon sonuçları:"])
+        icons = {
+            "won": "✅ Tuttu",
+            "lost": "❌ Kaybetti",
+            "void": "➖ Void",
+            "pending": "⏳ Bekliyor",
+        }
+        for ticket_value in ticket_reviews:
+            ticket = _as_mapping(ticket_value)
+            lines.append(
+                f"- {icons.get(_text(ticket.get('status')), '⏳ Bekliyor')}: "
+                f"{_text(ticket.get('label'))} | toplam oran {_odds(ticket.get('odds'))}"
+            )
+            for leg_value in _as_sequence(ticket.get("legs")):
+                leg = _as_mapping(leg_value)
+                lines.append(
+                    f"  • {_text(leg.get('fixture'))}: {_text(leg.get('pick'))} "
+                    f"@{_odds(leg.get('odds'))} | skor {_text(leg.get('score'))} | "
+                    f"{icons.get(_text(leg.get('status')), '⏳ Bekliyor')}"
+                )
+
+    daily_reviews = _as_sequence(report.get("daily_reviews"))
+    if daily_reviews:
+        lines.extend(["", "Bugün sonuçlanan analizler:"])
+        icons = {"won": "✅ Tuttu", "lost": "❌ Kaybetti", "void": "➖ Void"}
+        for review_value in daily_reviews[:12]:
+            review = _as_mapping(review_value)
+            lines.extend(
+                [
+                    (
+                        f"- {icons.get(_text(review.get('status')), '•')}: "
+                        f"{_text(review.get('fixture'))} | {_text(review.get('market'))} → "
+                        f"{_text(review.get('pick'))} @{_odds(review.get('odds'))} | "
+                        f"skor {_text(review.get('score'))}"
+                    ),
+                    f"  Neden: {_compact(review.get('explanation'), 420)}",
+                    f"  Ders: {_compact(review.get('lesson'), 280)}",
+                ]
+            )
+    elif _text(report.get("daily_reviewed_count"), "0") != "0":
+        lines.extend(
+            [
+                "",
+                "Bu çalışmada sonuçlanan analiz var; ayrıntı yüklenemediği için sadece performans özeti gönderildi.",
+            ]
+        )
     lines.extend(
         [
             "",

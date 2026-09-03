@@ -178,7 +178,16 @@ jobs:
       - name: Start automation stack
         run: |
           set -euo pipefail
-          docker compose up -d --build api worker
+          for attempt in 1 2 3; do
+            if docker compose up -d --build api worker; then
+              break
+            fi
+            if [ "$attempt" = "3" ]; then
+              exit 1
+            fi
+            echo "Container registry temporarily unavailable; retrying in $((attempt * 20)) seconds."
+            sleep $((attempt * 20))
+          done
           for attempt in $(seq 1 60); do
             if curl --fail --silent http://localhost:8000/api/v1/health/ready >/dev/null; then
               exit 0

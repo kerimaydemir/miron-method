@@ -55,6 +55,34 @@ def test_post_match_message_contains_learning_summary() -> None:
                 "mean_brier_score": "0.211",
                 "roi": "0.082",
             },
+            "ticket_reviews": [
+                {
+                    "label": "Günlük ikili",
+                    "odds": "2.04",
+                    "status": "lost",
+                    "legs": [
+                        {
+                            "fixture": "Valencia - Sevilla",
+                            "pick": "2.5 Alt",
+                            "odds": "1.55",
+                            "score": "2-1",
+                            "status": "lost",
+                        }
+                    ],
+                }
+            ],
+            "daily_reviews": [
+                {
+                    "fixture": "Valencia - Sevilla",
+                    "market": "Toplam gol",
+                    "pick": "2.5 Alt",
+                    "odds": "1.55",
+                    "status": "lost",
+                    "score": "2-1",
+                    "explanation": "Toplam gol üçe çıktığı için alt çizgisi kaybetti.",
+                    "lesson": "Aynı çizgide tekrar eden sapma takip edilecek.",
+                }
+            ],
         }
     )
 
@@ -63,6 +91,10 @@ def test_post_match_message_contains_learning_summary() -> None:
     assert "İsabet: 58.3%" in message
     assert "ROI: 8.2%" in message
     assert "case memory" in message
+    assert "Kupon sonuçları:" in message
+    assert "Günlük ikili | toplam oran 2.04" in message
+    assert "Valencia - Sevilla" in message
+    assert "Toplam gol üçe çıktığı" in message
 
 
 def test_split_message_respects_telegram_limit() -> None:

@@ -9,13 +9,124 @@ from zoneinfo import ZoneInfo
 import httpx
 from fastapi import APIRouter, Header, HTTPException, Query, status
 
-from app.domain.auto_coupon import AutoCouponPerformance, AutoCouponReadiness, AutoCouponRun
+from app.domain.auto_coupon import (
+    AutoCouponPerformance,
+    AutoCouponReadiness,
+    AutoCouponRun,
+    CouponSelection,
+    DailyPredictionReviewItem,
+)
 from app.infrastructure.auto_coupon_runtime import auto_coupon_service
 from app.settings import get_settings
 
 router = APIRouter(prefix="/auto-coupons", tags=["auto-coupons"])
 logger = logging.getLogger(__name__)
 settings = get_settings()
+
+
+def _reviewed_prediction_ids(runs: tuple[AutoCouponRun, ...]) -> set[UUID]:
+    return {
+        item.prediction_id
+        for run in runs
+        if run.post_match_review is not None
+        for item in run.post_match_review.items
+    }
+
+
+def _daily_review_payloads(
+    runs: tuple[AutoCouponRun, ...], *, newly_reviewed: set[UUID]
+) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
+    """Build Telegram-ready settlement details for predictions and coupon tickets."""
+    daily_reviews: list[dict[str, object]] = []
+    ticket_reviews: list[dict[str, object]] = []
+    for run in runs:
+        report = run.post_match_review
+        if report is None:
+            continue
+        predictions = {item.prediction_id: item for item in run.daily_predictions}
+        reviews = {item.prediction_id: item for item in report.items}
+        fresh = [item for item in report.items if item.prediction_id in newly_reviewed]
+        for review in fresh:
+            prediction = predictions.get(review.prediction_id)
+            if prediction is None:
+                continue
+            daily_reviews.append(
+                {
+                    "fixture": f"{prediction.fixture.home_team} - {prediction.fixture.away_team}",
+                    "league": prediction.league.name,
+                    "market": prediction.market_label,
+                    "pick": prediction.outcome_label,
+                    "odds": str(review.market_decimal_odds)
+                    if review.market_decimal_odds is not None
+                    else None,
+                    "probability": str(review.probability),
+                    "status": review.status,
+                    "score": f"{review.final_home_score}-{review.final_away_score}",
+                    "process_verdict": review.process_verdict,
+                    "explanation": review.explanation,
+                    "lesson": review.lesson,
+                }
+            )
+
+        for ticket in run.tickets:
+            selections = tuple(
+                item
+                for fixture_id in ticket.selection_fixture_ids
+                for item in run.selections
+                if item.fixture.id == fixture_id
+            )
+            ticket_items: list[tuple[CouponSelection, DailyPredictionReviewItem]] = []
+            for selection in selections:
+                matching_prediction = next(
+                    (
+                        prediction
+                        for prediction in run.daily_predictions
+                        if prediction.fixture.id == selection.fixture.id
+                        and prediction.pick == selection.pick
+                    ),
+                    None,
+                )
+                if matching_prediction is None:
+                    continue
+                review = reviews.get(matching_prediction.prediction_id)
+                if review is not None:
+                    ticket_items.append((selection, review))
+            if not ticket_items or not any(
+                review.prediction_id in newly_reviewed for _, review in ticket_items
+            ):
+                continue
+            statuses = {review.status for _, review in ticket_items}
+            if len(ticket_items) != len(selections):
+                ticket_status = "pending"
+            elif "lost" in statuses:
+                ticket_status = "lost"
+            elif statuses == {"won"}:
+                ticket_status = "won"
+            elif statuses == {"void"}:
+                ticket_status = "void"
+            else:
+                ticket_status = "pending"
+            ticket_reviews.append(
+                {
+                    "label": ticket.label,
+                    "odds": str(ticket.combined_decimal_odds),
+                    "status": ticket_status,
+                    "legs": [
+                        {
+                            "fixture": f"{selection.fixture.home_team} - {selection.fixture.away_team}",
+                            "market": selection.market_label,
+                            "pick": selection.outcome_label,
+                            "odds": str(selection.market_decimal_odds)
+                            if selection.market_decimal_odds is not None
+                            else None,
+                            "status": review.status,
+                            "score": f"{review.final_home_score}-{review.final_away_score}",
+                        }
+                        for selection, review in ticket_items
+                    ],
+                }
+            )
+    return daily_reviews, ticket_reviews
 
 
 @router.get("/readiness", response_model=AutoCouponReadiness)
@@ -145,13 +256,23 @@ async def run_daily_automation(
             ],
             "notice": run.notice,
         }
+    before_runs = auto_coupon_service.journal(limit=45)
+    before_reviewed = _reviewed_prediction_ids(before_runs)
     settled = await auto_coupon_service.settle_pending()
     reviewed = await auto_coupon_service.review_daily_predictions()
+    after_runs = auto_coupon_service.journal(limit=45)
+    after_reviewed = _reviewed_prediction_ids(after_runs)
+    daily_reviews, ticket_reviews = _daily_review_payloads(
+        after_runs,
+        newly_reviewed=after_reviewed - before_reviewed,
+    )
     return {
         "phase": phase,
         "day": day,
         "settled_count": settled,
         "daily_reviewed_count": reviewed,
+        "daily_reviews": daily_reviews,
+        "ticket_reviews": ticket_reviews,
         "performance": auto_coupon_service.performance().model_dump(mode="json"),
     }
 
