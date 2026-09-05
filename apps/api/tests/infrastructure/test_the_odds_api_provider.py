@@ -112,10 +112,16 @@ async def test_provider_uses_real_best_price_and_consensus_probability() -> None
     )
     assert total == Decimal("1.000000")
     assert {item.market_key for item in market.quotes} == {"h2h"}
-    home_quote = next(item for item in market.quotes if item.outcome_key == "home")
+    assert len(market.quotes) == 6
+    home_quote = max(
+        (item for item in market.quotes if item.outcome_key == "home"),
+        key=lambda item: item.decimal_odds,
+    )
     assert home_quote.decimal_odds == Decimal("2.200")
     assert home_quote.bookmaker == "book-b"
+    assert {item.bookmaker for item in market.quotes} == {"book-a", "book-b"}
     wide = await provider.wide_market_for(fixture.id)
     assert {item.market_key for item in wide.quotes} == {"h2h", "btts", "totals"}
     assert all(item.bookmaker_count == 2 for item in wide.quotes)
+    assert {item.bookmaker for item in wide.quotes} == {"book-a", "book-b"}
     await client.aclose()

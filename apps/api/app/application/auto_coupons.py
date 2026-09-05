@@ -1850,6 +1850,12 @@ class AutoCouponService:
                     right[1].fixture
                 ):
                     continue
+                if self._bookmaker_identity(left[2].bookmaker) != self._bookmaker_identity(
+                    right[2].bookmaker
+                ):
+                    continue
+                if self._bookmaker_identity(left[2].bookmaker) is None:
+                    continue
                 combined_odds = left[2].decimal_odds * right[2].decimal_odds
                 if combined_odds < self._forced_min_combined_odds:
                     continue
@@ -1955,6 +1961,11 @@ class AutoCouponService:
         ]
         return "".join(tokens) or ascii_name.lower().strip()
 
+    @staticmethod
+    def _bookmaker_identity(bookmaker: str | None) -> str | None:
+        normalized = " ".join((bookmaker or "").casefold().split())
+        return normalized or None
+
     def _forced_selection(
         self,
         run_id: UUID,
@@ -2036,8 +2047,8 @@ class AutoCouponService:
             ),
         )
 
-    @staticmethod
-    def _tickets(selections: tuple[CouponSelection, ...]) -> tuple[CouponTicket, ...]:
+    @classmethod
+    def _tickets(cls, selections: tuple[CouponSelection, ...]) -> tuple[CouponTicket, ...]:
         groups = (
             ("single", "En güvenli tekli", selections[:1], "düşük", 1),
             ("double", "Dengeli ikili", selections[:2], "orta", 2),
@@ -2050,6 +2061,11 @@ class AutoCouponService:
             if len(group) != required_count or any(
                 item.market_decimal_odds is None for item in group
             ):
+                continue
+            bookmaker_ids = tuple(cls._bookmaker_identity(item.bookmaker) for item in group)
+            if any(bookmaker is None for bookmaker in bookmaker_ids):
+                continue
+            if required_count > 1 and len(set(bookmaker_ids)) != 1:
                 continue
             for item in group:
                 probability *= item.probability
@@ -2069,7 +2085,7 @@ class AutoCouponService:
                     combined_decimal_odds=decimal_odds.quantize(
                         Decimal(".01"), rounding=ROUND_HALF_UP
                     ),
-                    odds_source="bookmaker_average",
+                    odds_source="best_bookmaker_quotes",
                     risk_label=risk,
                 )
             )

@@ -65,7 +65,8 @@ after a Gemini error. See
   same-Istanbul-day scan, 10→adaptive shortlist→3 Gemini filtering, three locked
   MİRON BABA analyses, and single/double/treble tickets
 - Odds-API.io/The Odds API/API-Football executable bookmaker prices with a
-  separately calculated, margin-removed market consensus;
+  separately calculated, margin-removed market consensus; every multi-leg
+  ticket uses prices available at one named bookmaker rather than mixing shops;
   daily journal creation stays alive during quota/timeout failures and records
   fixture-only entries without inventing odds
 - automatic result settlement, post-match autopsy, and PostgreSQL full-text case-memory

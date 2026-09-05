@@ -257,6 +257,7 @@ def test_ticket_math_rejects_combined_coupon_below_seventy_percent() -> None:
             market_fair_probability=Decimal(".55"),
             edge=probability - Decimal(".55"),
             bookmaker_count=3,
+            bookmaker="Bet365",
             price_observed_at=datetime(2026, 8, 22, 8, 0, tzinfo=UTC),
             confidence=Decimal(".60"),
             reason="İzinli lig ve güncel veri desteği.",
@@ -268,7 +269,7 @@ def test_ticket_math_rejects_combined_coupon_below_seventy_percent() -> None:
     assert [item.kind for item in tickets] == ["single"]
     assert tickets[0].combined_probability == Decimal(".700000")
     assert tickets[0].combined_decimal_odds == Decimal("1.80")
-    assert all(item.odds_source == "bookmaker_average" for item in tickets)
+    assert all(item.odds_source == "best_bookmaker_quotes" for item in tickets)
 
 
 def test_ticket_math_accepts_two_safe_legs_when_combined_price_reaches_gate() -> None:
@@ -286,6 +287,7 @@ def test_ticket_math_accepts_two_safe_legs_when_combined_price_reaches_gate() ->
             market_fair_probability=Decimal(".74"),
             edge=Decimal(".10"),
             bookmaker_count=3,
+            bookmaker="Bet365",
             price_observed_at=datetime(2026, 8, 22, 8, 0, tzinfo=UTC),
             confidence=Decimal(".70"),
             reason="Yüksek olasılıklı düşük oran kombine ayağı.",
@@ -299,6 +301,35 @@ def test_ticket_math_accepts_two_safe_legs_when_combined_price_reaches_gate() ->
     assert [item.kind for item in tickets] == ["double"]
     assert tickets[0].combined_probability == Decimal(".705600")
     assert tickets[0].combined_decimal_odds == Decimal("1.81")
+
+
+def test_ticket_math_never_multiplies_prices_from_different_bookmakers() -> None:
+    league = TOP_LEAGUES[1]
+    selections = tuple(
+        CouponSelection(
+            fixture=fixture(f"la{index}"),
+            league=league,
+            analysis_run_id=uuid4(),
+            lock_id=uuid4(),
+            pick="home",
+            probability=Decimal(".84"),
+            model_fair_odds=Decimal("1.19"),
+            market_decimal_odds=Decimal("1.80"),
+            market_fair_probability=Decimal(".74"),
+            edge=Decimal(".10"),
+            bookmaker_count=3,
+            bookmaker=bookmaker,
+            price_observed_at=datetime(2026, 8, 22, 8, 0, tzinfo=UTC),
+            confidence=Decimal(".70"),
+            reason="Yüksek olasılıklı gerçek bookmaker ayağı.",
+            uncertainty="Kadro bilgisi henüz doğrulanmadı.",
+        )
+        for index, bookmaker in enumerate(("Bet365", "Unibet"), start=1)
+    )
+
+    tickets = AutoCouponService._tickets(selections)
+
+    assert [item.kind for item in tickets] == ["single"]
 
 
 def test_forced_daily_coupon_combines_two_banko_legs_when_strict_gate_is_empty() -> None:
@@ -338,6 +369,7 @@ def test_forced_daily_coupon_combines_two_banko_legs_when_strict_gate_is_empty()
         decimal_odds=Decimal("1.48"),
         fair_probability=Decimal(".62"),
         bookmaker_count=2,
+        bookmaker="Bet365",
     )
     second_quote = MarketQuote(
         provider="espn_core_odds",
@@ -350,6 +382,7 @@ def test_forced_daily_coupon_combines_two_banko_legs_when_strict_gate_is_empty()
         decimal_odds=Decimal("1.48"),
         fair_probability=Decimal(".72"),
         bookmaker_count=2,
+        bookmaker="Bet365",
     )
     service = AutoCouponService.__new__(AutoCouponService)
     service._forced_min_combined_odds = Decimal("1.80")
@@ -374,6 +407,117 @@ def test_forced_daily_coupon_combines_two_banko_legs_when_strict_gate_is_empty()
     assert selections[0].analysis_run_id is None
     assert selections[0].lock_id is None
     assert "bağımsız model tahmini" in selections[0].uncertainty
+
+
+def test_forced_daily_coupon_rejects_cross_book_pair() -> None:
+    now = datetime(2026, 8, 24, 9, 0, tzinfo=UTC)
+    league = TOP_LEAGUES[1]
+    first_fixture = fixture("la1")
+    second_fixture = fixture("la1").model_copy(
+        update={"home_team": "Second Home", "away_team": "Second Away"}
+    )
+    candidates = tuple(
+        AutoCandidate(
+            fixture=match,
+            league=league,
+            auto_score=85,
+            memory_case_count=0,
+            positive_factors=("LaLiga",),
+            risk_flags=(),
+        )
+        for match in (first_fixture, second_fixture)
+    )
+    first_quote = MarketQuote(
+        provider="odds_api_io",
+        observed_at=now,
+        market_key="totals",
+        market_label="Toplam gol",
+        outcome_key="under",
+        outcome_label="Alt",
+        point=Decimal("3.5"),
+        decimal_odds=Decimal("1.45"),
+        fair_probability=Decimal(".68"),
+        bookmaker_count=2,
+        bookmaker="Bet365",
+    )
+    second_quote = first_quote.model_copy(
+        update={"decimal_odds": Decimal("1.40"), "bookmaker": "Unibet"}
+    )
+    service = AutoCouponService.__new__(AutoCouponService)
+    service._forced_min_combined_odds = Decimal("1.80")
+    service._forced_max_combined_odds = Decimal("2.60")
+
+    selections, tickets = service._forced_daily_coupon(
+        uuid4(),
+        candidates,
+        {
+            first_fixture.id: market_for_quote(first_quote),
+            second_fixture.id: market_for_quote(second_quote),
+        },
+        now,
+    )
+
+    assert selections == ()
+    assert tickets == ()
+
+
+def test_forced_daily_coupon_uses_one_executable_bookmaker_price_matrix() -> None:
+    now = datetime(2026, 8, 24, 9, 0, tzinfo=UTC)
+    league = TOP_LEAGUES[1]
+    first_fixture = fixture("la1")
+    second_fixture = fixture("la1").model_copy(
+        update={"home_team": "Second Home", "away_team": "Second Away"}
+    )
+    candidates = tuple(
+        AutoCandidate(
+            fixture=match,
+            league=league,
+            auto_score=85,
+            memory_case_count=0,
+            positive_factors=("LaLiga",),
+            risk_flags=(),
+        )
+        for match in (first_fixture, second_fixture)
+    )
+    base_quote = MarketQuote(
+        provider="odds_api_io",
+        observed_at=now,
+        market_key="totals",
+        market_label="Toplam gol",
+        outcome_key="under",
+        outcome_label="Alt",
+        point=Decimal("3.5"),
+        decimal_odds=Decimal("1.50"),
+        fair_probability=Decimal(".68"),
+        bookmaker_count=2,
+        bookmaker="Bet365",
+    )
+    first_unibet = base_quote.model_copy(
+        update={"decimal_odds": Decimal("1.55"), "bookmaker": "Unibet"}
+    )
+    second_bet365 = base_quote.model_copy(update={"decimal_odds": Decimal("1.40")})
+    second_unibet = base_quote.model_copy(
+        update={"decimal_odds": Decimal("1.30"), "bookmaker": "Unibet"}
+    )
+    first_market = market_for_quote(base_quote).model_copy(
+        update={"quotes": (base_quote, first_unibet)}
+    )
+    second_market = market_for_quote(second_bet365).model_copy(
+        update={"quotes": (second_bet365, second_unibet)}
+    )
+    service = AutoCouponService.__new__(AutoCouponService)
+    service._forced_min_combined_odds = Decimal("1.80")
+    service._forced_max_combined_odds = Decimal("2.60")
+
+    selections, tickets = service._forced_daily_coupon(
+        uuid4(),
+        candidates,
+        {first_fixture.id: first_market, second_fixture.id: second_market},
+        now,
+    )
+
+    assert {selection.bookmaker for selection in selections} == {"Bet365"}
+    assert tickets[0].combined_decimal_odds == Decimal("2.10")
 
 
 def test_forced_daily_coupon_avoids_tiny_h2h_favorite_when_richer_leg_exists() -> None:
@@ -414,6 +558,7 @@ def test_forced_daily_coupon_avoids_tiny_h2h_favorite_when_richer_leg_exists() -
         decimal_odds=Decimal("1.22"),
         fair_probability=Decimal(".78"),
         bookmaker_count=2,
+        bookmaker="Bet365",
     )
     richer_spread = low_h2h.model_copy(
         update={
@@ -437,6 +582,7 @@ def test_forced_daily_coupon_avoids_tiny_h2h_favorite_when_richer_leg_exists() -
         decimal_odds=Decimal("1.61"),
         fair_probability=Decimal(".59"),
         bookmaker_count=2,
+        bookmaker="Bet365",
     )
     first_market = MarketOdds(
         provider="odds_api_io",

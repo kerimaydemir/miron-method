@@ -58,8 +58,10 @@ def test_api_football_odds_normalizes_real_bookmaker_markets() -> None:
     assert market.provider == "api_football"
     assert market.home_decimal == Decimal("2.400")
     assert {quote.market_key for quote in market.quotes} == {"h2h", "totals"}
+    assert len(market.quotes) == 15
     assert all(quote.bookmaker_count == 3 for quote in market.quotes)
     assert all(quote.bookmaker is not None for quote in market.quotes)
+    assert {quote.bookmaker for quote in market.quotes} == {"Book 1", "Book 2", "Book 3"}
 
 
 def test_api_football_season_uses_start_year_but_keeps_mls_calendar_year() -> None:

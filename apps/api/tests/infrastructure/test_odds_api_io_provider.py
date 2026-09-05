@@ -196,13 +196,25 @@ async def test_provider_filters_top_league_and_normalizes_richer_markets() -> No
         "first_half_h2h",
         "first_half_totals",
     }
-    quotes = {(item.market_key, item.outcome_key, item.point): item for item in market.quotes}
-    assert quotes[("double_chance", "1x", None)].decimal_odds == Decimal("2.050")
-    assert quotes[("spread", "home", Decimal("-0.5"))].market_label == "Handikap"
-    assert quotes[("spread", "away", Decimal("0.5"))].decimal_odds == Decimal("1.280")
-    assert quotes[("odd_even", "even", None)].outcome_label == "Çift"
-    assert quotes[("first_half_h2h", "draw", None)].market_label == "İlk yarı sonucu"
-    assert quotes[("first_half_totals", "over", Decimal("1.5"))].decimal_odds == Decimal("2.300")
+    def quotes_for(market_key: str, outcome_key: str, point: Decimal | None = None):
+        return [
+            item
+            for item in market.quotes
+            if item.market_key == market_key
+            and item.outcome_key == outcome_key
+            and item.point == point
+        ]
+
+    double_chance_1x = quotes_for("double_chance", "1x")
+    away_spread = quotes_for("spread", "away", Decimal("0.5"))
+    first_half_over = quotes_for("first_half_totals", "over", Decimal("1.5"))
+    assert max(item.decimal_odds for item in double_chance_1x) == Decimal("2.050")
+    assert {item.bookmaker for item in double_chance_1x} == {"Bet365", "Unibet"}
+    assert quotes_for("spread", "home", Decimal("-0.5"))[0].market_label == "Handikap"
+    assert max(item.decimal_odds for item in away_spread) == Decimal("1.280")
+    assert quotes_for("odd_even", "even")[0].outcome_label == "Çift"
+    assert quotes_for("first_half_h2h", "draw")[0].market_label == "İlk yarı sonucu"
+    assert max(item.decimal_odds for item in first_half_over) == Decimal("2.300")
     assert all(item.provider == "odds_api_io" for item in market.quotes)
     await client.aclose()
 

@@ -398,38 +398,45 @@ class ApiFootballOddsProvider:
             raw = {outcome: Decimal("1") / averages[outcome] for outcome in required}
             overround = sum(raw.values(), Decimal("0"))
             for outcome in required:
-                best_bookmaker, best_price = max(
-                    (
-                        (bookmaker, outcomes[outcome])
-                        for bookmaker, outcomes in complete_bookmakers.items()
-                    ),
-                    key=lambda item: item[1],
+                fair_probability = (raw[outcome] / overround).quantize(
+                    Decimal(".000001"), rounding=ROUND_HALF_UP
                 )
-                quotes.append(
-                    MarketQuote(
-                        provider="api_football",
-                        observed_at=observed_at,
-                        market_key=market_key,
-                        market_label=cls._market_label(market_key),
-                        outcome_key=outcome,
-                        outcome_label=cls._outcome_label(outcome),
-                        description=description,
-                        point=point,
-                        decimal_odds=best_price.quantize(
-                            Decimal(".001"), rounding=ROUND_HALF_UP
-                        ),
-                        fair_probability=(raw[outcome] / overround).quantize(
-                            Decimal(".000001"), rounding=ROUND_HALF_UP
-                        ),
-                        bookmaker_count=len(complete_bookmakers),
-                        bookmaker=bookmaker_labels[best_bookmaker],
+                for bookmaker, outcomes in complete_bookmakers.items():
+                    quotes.append(
+                        MarketQuote(
+                            provider="api_football",
+                            observed_at=observed_at,
+                            market_key=market_key,
+                            market_label=cls._market_label(market_key),
+                            outcome_key=outcome,
+                            outcome_label=cls._outcome_label(outcome),
+                            description=description,
+                            point=point,
+                            decimal_odds=outcomes[outcome].quantize(
+                                Decimal(".001"), rounding=ROUND_HALF_UP
+                            ),
+                            fair_probability=fair_probability,
+                            bookmaker_count=len(complete_bookmakers),
+                            bookmaker=bookmaker_labels[bookmaker],
+                        )
                     )
-                )
         h2h = [item for item in quotes if item.market_key == "h2h"]
-        prices = {item.outcome_key: item.decimal_odds for item in h2h}
-        fair = {item.outcome_key: item.fair_probability for item in h2h}
-        if not all(key in prices for key in ("home", "draw", "away")):
+        h2h_by_outcome = {
+            outcome: [item for item in h2h if item.outcome_key == outcome]
+            for outcome in ("home", "draw", "away")
+        }
+        if not all(h2h_by_outcome.values()):
             return None
+        prices = {
+            outcome: (
+                sum((item.decimal_odds for item in items), Decimal("0")) / len(items)
+            ).quantize(Decimal(".001"), rounding=ROUND_HALF_UP)
+            for outcome, items in h2h_by_outcome.items()
+        }
+        fair = {
+            outcome: items[0].fair_probability
+            for outcome, items in h2h_by_outcome.items()
+        }
         policy = next(item for item in TOP_LEAGUES if item.key == league_key)
         canonical_id = uuid5(NAMESPACE_URL, f"api-football:event:{fixture_id_raw}")
         fixture = CanonicalFixture(

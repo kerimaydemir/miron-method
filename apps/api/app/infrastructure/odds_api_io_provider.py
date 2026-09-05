@@ -480,39 +480,29 @@ class OddsApiIoProvider:
             }
             raw_probabilities = {outcome: Decimal("1") / averages[outcome] for outcome in required}
             overround = sum(raw_probabilities.values(), Decimal("0"))
-            aggregate_observed_at = min(
-                outcomes[outcome][1]
-                for outcomes in complete_bookmakers.values()
-                for outcome in required
-            )
             for outcome in required:
-                best_bookmaker, best_sample = max(
-                    (
-                        (bookmaker, outcomes[outcome])
-                        for bookmaker, outcomes in complete_bookmakers.items()
-                    ),
-                    key=lambda item: item[1][0],
+                fair_probability = (raw_probabilities[outcome] / overround).quantize(
+                    Decimal(".000001"), rounding=ROUND_HALF_UP
                 )
-                normalized_quotes.append(
-                    MarketQuote(
-                        provider="odds_api_io",
-                        observed_at=aggregate_observed_at,
-                        market_key=market_key,
-                        market_label=cls._market_label(market_key),
-                        outcome_key=outcome,
-                        outcome_label=cls._outcome_label(outcome),
-                        description=description,
-                        point=cls._selection_point(market_key, outcome, point),
-                        decimal_odds=best_sample[0].quantize(
-                            Decimal(".001"), rounding=ROUND_HALF_UP
-                        ),
-                        fair_probability=(raw_probabilities[outcome] / overround).quantize(
-                            Decimal(".000001"), rounding=ROUND_HALF_UP
-                        ),
-                        bookmaker_count=len(complete_bookmakers),
-                        bookmaker=bookmaker_labels[best_bookmaker],
+                for bookmaker, outcomes in complete_bookmakers.items():
+                    normalized_quotes.append(
+                        MarketQuote(
+                            provider="odds_api_io",
+                            observed_at=min(outcomes[item][1] for item in required),
+                            market_key=market_key,
+                            market_label=cls._market_label(market_key),
+                            outcome_key=outcome,
+                            outcome_label=cls._outcome_label(outcome),
+                            description=description,
+                            point=cls._selection_point(market_key, outcome, point),
+                            decimal_odds=outcomes[outcome][0].quantize(
+                                Decimal(".001"), rounding=ROUND_HALF_UP
+                            ),
+                            fair_probability=fair_probability,
+                            bookmaker_count=len(complete_bookmakers),
+                            bookmaker=bookmaker_labels[bookmaker],
+                        )
                     )
-                )
         fixture_id = uuid5(NAMESPACE_URL, f"odds-api-io:event:{event.id}")
         fixture = CanonicalFixture(
             id=fixture_id,

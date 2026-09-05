@@ -382,38 +382,28 @@ class TheOddsApiProvider:
             raw_probabilities = {outcome: Decimal("1") / averages[outcome] for outcome in required}
             overround = sum(raw_probabilities.values(), Decimal("0"))
             for outcome in required:
-                best_bookmaker, best_sample = max(
-                    (
-                        (bookmaker, outcomes[outcome])
-                        for bookmaker, outcomes in complete_bookmakers.items()
-                    ),
-                    key=lambda item: item[1][0],
+                fair_probability = (raw_probabilities[outcome] / overround).quantize(
+                    Decimal(".000001"), rounding=ROUND_HALF_UP
                 )
-                observed = min(
-                    outcomes[required_outcome][1]
-                    for outcomes in complete_bookmakers.values()
-                    for required_outcome in required
-                )
-                normalized_quotes.append(
-                    MarketQuote(
-                        provider="the_odds_api",
-                        observed_at=observed,
-                        market_key=market_key,
-                        market_label=TheOddsApiProvider._market_label(market_key),
-                        outcome_key=outcome,
-                        outcome_label=TheOddsApiProvider._outcome_label(outcome),
-                        description=description,
-                        point=point,
-                        decimal_odds=best_sample[0].quantize(
-                            Decimal(".001"), rounding=ROUND_HALF_UP
-                        ),
-                        fair_probability=(raw_probabilities[outcome] / overround).quantize(
-                            Decimal(".000001"), rounding=ROUND_HALF_UP
-                        ),
-                        bookmaker_count=len(complete_bookmakers),
-                        bookmaker=best_bookmaker,
+                for bookmaker, outcomes in complete_bookmakers.items():
+                    normalized_quotes.append(
+                        MarketQuote(
+                            provider="the_odds_api",
+                            observed_at=min(outcomes[item][1] for item in required),
+                            market_key=market_key,
+                            market_label=TheOddsApiProvider._market_label(market_key),
+                            outcome_key=outcome,
+                            outcome_label=TheOddsApiProvider._outcome_label(outcome),
+                            description=description,
+                            point=point,
+                            decimal_odds=outcomes[outcome][0].quantize(
+                                Decimal(".001"), rounding=ROUND_HALF_UP
+                            ),
+                            fair_probability=fair_probability,
+                            bookmaker_count=len(complete_bookmakers),
+                            bookmaker=bookmaker,
+                        )
                     )
-                )
         league = next(item for item in TOP_LEAGUES if item.odds_sport_key == event.sport_key)
         fixture_id = uuid5(NAMESPACE_URL, f"the-odds-api:event:{event.id}")
         fixture = CanonicalFixture(

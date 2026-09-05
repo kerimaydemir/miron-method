@@ -75,7 +75,9 @@ button clicks from spending fourteen more Gemini requests on the same fixture wi
 `ODDS_API_IO_KEY`, `THE_ODDS_API_KEY`, and `API_FOOTBALL_API_KEY` are used as
 read-only bookmaker sources. Every published leg records one actual bookmaker
 price; cross-book averages are used only to remove margin and estimate consensus
-probability. When bookmaker feeds are unavailable,
+probability. A double or treble is published only when every leg is priced by the
+same named bookmaker, so the displayed combined odds are executable in one shop.
+When bookmaker feeds are unavailable,
 the system still creates a fixture-only daily journal, but `market_decimal_odds`
 is `null`, the tier remains `journal_only`, and no coupon/ticket is published.
 The default free-quota market set is `h2h,totals`; set `THE_ODDS_WIDE_MARKETS`
