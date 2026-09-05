@@ -167,6 +167,9 @@ services:
     profiles: [tools]
     working_dir: /workspace
     volumes: ["./:/workspace"]
+    environment:
+      RUFF_CACHE_DIR: /tmp/ruff-cache
+      MYPY_CACHE_DIR: /tmp/mypy-cache
     entrypoint: ["sh", "scripts/toolbox"]
 
   lockfile:
@@ -182,7 +185,7 @@ services:
   test-api:
     <<: *api-image
     profiles: [test]
-    command: ["python", "-m", "pytest", "-q"]
+    command: ["python", "-m", "pytest", "-q", "-p", "no:cacheprovider"]
     environment:
       APP_ENV: test
       PERSISTENCE_ENABLED: "false"
@@ -211,7 +214,7 @@ services:
       target: development
     profiles: [test]
     working_dir: /workspace/apps/web
-    command: ["node_modules/.bin/vitest", "run"]
+    command: ["node_modules/.bin/vitest", "run", "--configLoader", "runner"]
     volumes:
       - "./apps/web:/workspace/apps/web"
       - "web-test-app-node-modules:/workspace/apps/web/node_modules"
