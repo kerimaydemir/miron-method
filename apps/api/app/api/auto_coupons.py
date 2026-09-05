@@ -253,6 +253,7 @@ async def run_daily_automation(
                     "label": ticket.label,
                     "combined_probability": str(ticket.combined_probability),
                     "combined_decimal_odds": str(ticket.combined_decimal_odds),
+                    "probability_source": ticket.probability_source,
                     "risk_label": ticket.risk_label,
                     "legs": [
                         {

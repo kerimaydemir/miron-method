@@ -85,15 +85,23 @@ def build_pre_match_message(report: Mapping[str, object]) -> str:
     if tickets:
         for ticket_index, ticket_value in enumerate(tickets, start=1):
             ticket = _as_mapping(ticket_value)
+            probability_label = (
+                "Piyasa"
+                if _text(ticket.get("probability_source")) == "bookmaker_consensus"
+                else "Model"
+            )
             lines.append(
-                f"Kupon {ticket_index} | Toplam oran: {_odds(ticket.get('combined_decimal_odds'))}"
+                f"Kupon {ticket_index} | Toplam oran: "
+                f"{_odds(ticket.get('combined_decimal_odds'))} | {probability_label}: "
+                f"{_percent(ticket.get('combined_probability'))}"
             )
             for leg_index, leg_value in enumerate(_as_sequence(ticket.get("legs")), start=1):
                 leg = _as_mapping(leg_value)
                 lines.append(
                     f"{leg_index}) {_text(leg.get('fixture'))} — "
                     f"{_text(leg.get('pick'))} @{_odds(leg.get('odds'))}"
-                    f"{_bookmaker_suffix(leg.get('bookmaker'))}"
+                    f"{_bookmaker_suffix(leg.get('bookmaker'))} | "
+                    f"{_percent(leg.get('probability'))}"
                 )
     else:
         priced_predictions = tuple(

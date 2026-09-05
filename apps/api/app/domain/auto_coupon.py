@@ -312,6 +312,7 @@ class CouponTicket(BaseModel):
     selection_fixture_ids: tuple[UUID, ...]
     combined_probability: Decimal = Field(gt=0, lt=1)
     combined_decimal_odds: Decimal = Field(gt=1)
+    probability_source: Literal["model", "bookmaker_consensus"] = "model"
     odds_source: Literal[
         "bookmaker_average",
         "bookmaker_consensus",

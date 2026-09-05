@@ -23,8 +23,9 @@ Then save the printed id as `TELEGRAM_CHAT_ID`.
 
 ## Runtime behavior
 
-- `pre_match` sends a short coupon summary: total odds, pick, actual bookmaker
-  price, and bookmaker name per leg.
+- `pre_match` sends a short coupon summary: total odds, explicitly labelled model
+  or bookmaker-consensus probability, pick, actual bookmaker price, and bookmaker
+  name per leg.
 - Pick labels use familiar Türkiye coupon wording where the data supports it: `MS 1`,
   `MS X`, `MS 2`, `Çifte Şans 1X/12/X2`, `KG Var/Yok`, `2.5 Üst/Alt`,
   `İY 1/X/2`, `Handikap`, `Korner Handikap`, and `Kart Handikap`.

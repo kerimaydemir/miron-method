@@ -18,6 +18,7 @@ def test_pre_match_ticket_message_contains_coupon_summary() -> None:
                     "label": "Zorunlu günlük banko ikilisi",
                     "combined_probability": "0.420280",
                     "combined_decimal_odds": "2.01",
+                    "probability_source": "bookmaker_consensus",
                     "risk_label": "controlled",
                     "legs": [
                         {
@@ -36,8 +37,8 @@ def test_pre_match_ticket_message_contains_coupon_summary() -> None:
     )
 
     assert "MİRON BABA AI günlük kupon" in message
-    assert "Kupon 1 | Toplam oran: 2.01" in message
-    assert "Barcelona - Athletic Club — Barcelona @1.33" in message
+    assert "Kupon 1 | Toplam oran: 2.01 | Piyasa: 42.0%" in message
+    assert "Barcelona - Athletic Club — Barcelona @1.33 | 70.7%" in message
     assert "Run:" not in message
     assert "Neden:" not in message
 

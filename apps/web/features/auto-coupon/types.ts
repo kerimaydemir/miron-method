@@ -133,6 +133,7 @@ export type CouponTicket = {
   selection_fixture_ids: string[];
   combined_probability: string;
   combined_decimal_odds: string;
+  probability_source: "model" | "bookmaker_consensus";
   odds_source:
     | "bookmaker_average"
     | "bookmaker_consensus"

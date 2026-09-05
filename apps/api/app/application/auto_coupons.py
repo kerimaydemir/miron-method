@@ -1895,6 +1895,7 @@ class AutoCouponService:
             combined_decimal_odds=combined_odds.quantize(
                 Decimal(".01"), rounding=ROUND_HALF_UP
             ),
+            probability_source="bookmaker_consensus",
             odds_source="best_bookmaker_quotes",
             risk_label="orta" if combined_probability >= Decimal(".55") else "yüksek",
         )

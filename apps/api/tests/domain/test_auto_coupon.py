@@ -403,6 +403,7 @@ def test_forced_daily_coupon_combines_two_banko_legs_when_strict_gate_is_empty()
     assert tickets[0].label == "Günlük piyasa ikilisi"
     assert tickets[0].combined_decimal_odds == Decimal("2.19")
     assert tickets[0].combined_probability < Decimal(".70")
+    assert tickets[0].probability_source == "bookmaker_consensus"
     assert selections[0].probability == first_quote.fair_probability
     assert selections[0].analysis_run_id is None
     assert selections[0].lock_id is None
@@ -518,6 +519,7 @@ def test_forced_daily_coupon_uses_one_executable_bookmaker_price_matrix() -> Non
 
     assert {selection.bookmaker for selection in selections} == {"Bet365"}
     assert tickets[0].combined_decimal_odds == Decimal("2.10")
+    assert tickets[0].probability_source == "bookmaker_consensus"
 
 
 def test_forced_daily_coupon_avoids_tiny_h2h_favorite_when_richer_leg_exists() -> None:

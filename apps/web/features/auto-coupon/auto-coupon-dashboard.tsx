@@ -425,7 +425,11 @@ export function AutoCouponDashboard({
                     </p>
                   </div>
                   <div className="ticket-metric">
-                    <small>Birleşik ihtimal</small>
+                    <small>
+                      {ticket.probability_source === "bookmaker_consensus"
+                        ? "Piyasa konsensüsü"
+                        : "Model ihtimali"}
+                    </small>
                     <strong>
                       %{Math.round(Number(ticket.combined_probability) * 100)}
                     </strong>
