@@ -113,7 +113,7 @@ class CompositeOddsProvider:
                     },
                 )
                 continue
-            pairs = cast(tuple[tuple[CanonicalFixture, MarketOdds], ...], response)
+            pairs = response
             if pairs:
                 results.update({fixture.id: (fixture, market) for fixture, market in pairs})
         if results:
