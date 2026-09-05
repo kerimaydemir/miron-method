@@ -399,10 +399,15 @@ class OddsApiIoProvider:
             return None
         quote_groups: dict[
             tuple[str, str | None, Decimal | None],
-            dict[str, list[tuple[Decimal, datetime]]],
+            dict[str, dict[str, tuple[Decimal, datetime]]],
         ] = {}
-        latest_updates: list[datetime] = []
-        for market_items in bookmakers.values():
+        bookmaker_labels: dict[str, str] = {}
+        for raw_bookmaker, market_items in bookmakers.items():
+            bookmaker_label = " ".join(str(raw_bookmaker).split())
+            bookmaker = bookmaker_label.casefold()
+            if not bookmaker:
+                continue
+            bookmaker_labels.setdefault(bookmaker, bookmaker_label)
             if not isinstance(market_items, list):
                 continue
             for market_item in market_items:
@@ -411,7 +416,9 @@ class OddsApiIoProvider:
                 market_key = cls._market_key(str(market_item.get("name", "")))
                 if market_key is None:
                     continue
-                updated = cls._parse_datetime(market_item.get("updatedAt"), observed_at)
+                updated = cls._parse_datetime(market_item.get("updatedAt"))
+                if updated is None or not cls._is_actionable_update(updated, observed_at):
+                    continue
                 odds_rows = market_item.get("odds")
                 if not isinstance(odds_rows, list):
                     continue
@@ -423,16 +430,26 @@ class OddsApiIoProvider:
                         price = cls._decimal(row.get(raw_outcome))
                         if price is None or price <= 1:
                             continue
-                        quote_groups.setdefault((market_key, None, point), {}).setdefault(
-                            outcome_key, []
-                        ).append((price, updated))
-                        latest_updates.append(updated)
-        h2h = quote_groups.get(("h2h", None, None), {})
-        if not all(outcome in h2h for outcome in ("home", "draw", "away")):
+                        bookmaker_outcomes = quote_groups.setdefault(
+                            (market_key, None, point), {}
+                        ).setdefault(bookmaker, {})
+                        existing = bookmaker_outcomes.get(outcome_key)
+                        if existing is None or updated > existing[1]:
+                            bookmaker_outcomes[outcome_key] = (price, updated)
+        h2h_by_bookmaker = quote_groups.get(("h2h", None, None), {})
+        h2h = {
+            bookmaker: outcomes
+            for bookmaker, outcomes in h2h_by_bookmaker.items()
+            if all(outcome in outcomes for outcome in ("home", "draw", "away"))
+        }
+        if not h2h:
             return None
-        home_prices = [item[0] for item in h2h["home"]]
-        draw_prices = [item[0] for item in h2h["draw"]]
-        away_prices = [item[0] for item in h2h["away"]]
+        home_samples = [outcomes["home"] for outcomes in h2h.values()]
+        draw_samples = [outcomes["draw"] for outcomes in h2h.values()]
+        away_samples = [outcomes["away"] for outcomes in h2h.values()]
+        home_prices = [item[0] for item in home_samples]
+        draw_prices = [item[0] for item in draw_samples]
+        away_prices = [item[0] for item in away_samples]
         avg_home = sum(home_prices, Decimal("0")) / len(home_prices)
         avg_draw = sum(draw_prices, Decimal("0")) / len(draw_prices)
         avg_away = sum(away_prices, Decimal("0")) / len(away_prices)
@@ -442,36 +459,58 @@ class OddsApiIoProvider:
         fair_draw = (raw[1] / total).quantize(Decimal(".000001"), rounding=ROUND_HALF_UP)
         fair_away = Decimal("1") - fair_home - fair_draw
         normalized_quotes: list[MarketQuote] = []
-        for (market_key, description, point), outcomes in quote_groups.items():
+        for (market_key, description, point), outcomes_by_bookmaker in quote_groups.items():
             required = cls._required_outcomes(market_key)
-            if required is None or not all(outcome in outcomes for outcome in required):
+            if required is None:
+                continue
+            complete_bookmakers = {
+                bookmaker: outcomes
+                for bookmaker, outcomes in outcomes_by_bookmaker.items()
+                if all(outcome in outcomes for outcome in required)
+            }
+            if not complete_bookmakers:
                 continue
             averages = {
-                outcome: sum((item[0] for item in outcomes[outcome]), Decimal("0"))
-                / len(outcomes[outcome])
+                outcome: sum(
+                    (outcomes[outcome][0] for outcomes in complete_bookmakers.values()),
+                    Decimal("0"),
+                )
+                / len(complete_bookmakers)
                 for outcome in required
             }
             raw_probabilities = {outcome: Decimal("1") / averages[outcome] for outcome in required}
             overround = sum(raw_probabilities.values(), Decimal("0"))
+            aggregate_observed_at = min(
+                outcomes[outcome][1]
+                for outcomes in complete_bookmakers.values()
+                for outcome in required
+            )
             for outcome in required:
-                samples = outcomes[outcome]
+                best_bookmaker, best_sample = max(
+                    (
+                        (bookmaker, outcomes[outcome])
+                        for bookmaker, outcomes in complete_bookmakers.items()
+                    ),
+                    key=lambda item: item[1][0],
+                )
                 normalized_quotes.append(
                     MarketQuote(
                         provider="odds_api_io",
-                        observed_at=max(item[1] for item in samples),
+                        observed_at=aggregate_observed_at,
                         market_key=market_key,
                         market_label=cls._market_label(market_key),
                         outcome_key=outcome,
                         outcome_label=cls._outcome_label(outcome),
                         description=description,
-                        point=point,
-                        decimal_odds=averages[outcome].quantize(
+                        point=cls._selection_point(market_key, outcome, point),
+                        decimal_odds=best_sample[0].quantize(
                             Decimal(".001"), rounding=ROUND_HALF_UP
                         ),
                         fair_probability=(raw_probabilities[outcome] / overround).quantize(
                             Decimal(".000001"), rounding=ROUND_HALF_UP
                         ),
-                        bookmaker_count=len(samples),
+                        bookmaker_count=len(complete_bookmakers),
+                        bookmaker=bookmaker_labels[best_bookmaker],
                     )
                 )
         fixture_id = uuid5(NAMESPACE_URL, f"odds-api-io:event:{event.id}")
@@ -489,8 +528,10 @@ class OddsApiIoProvider:
         market = MarketOdds(
             provider="odds_api_io",
             event_id=str(event.id),
-            observed_at=max(latest_updates) if latest_updates else observed_at,
-            bookmaker_count=min(len(home_prices), len(draw_prices), len(away_prices)),
+            observed_at=min(
+                item[1] for outcomes in h2h.values() for item in outcomes.values()
+            ),
+            bookmaker_count=len(h2h),
             home_decimal=avg_home.quantize(Decimal(".001"), rounding=ROUND_HALF_UP),
             draw_decimal=avg_draw.quantize(Decimal(".001"), rounding=ROUND_HALF_UP),
             away_decimal=avg_away.quantize(Decimal(".001"), rounding=ROUND_HALF_UP),
@@ -601,16 +642,33 @@ class OddsApiIoProvider:
         }[outcome]
 
     @staticmethod
-    def _parse_datetime(raw: object, default: datetime) -> datetime:
+    def _parse_datetime(raw: object) -> datetime | None:
         if not isinstance(raw, str):
-            return default
+            return None
         try:
             value = datetime.fromisoformat(raw.replace("Z", "+00:00"))
         except ValueError:
-            return default
+            return None
         if value.tzinfo is None:
             return value.replace(tzinfo=UTC)
-        return value
+        return value.astimezone(UTC)
+
+    @staticmethod
+    def _is_actionable_update(updated: datetime, observed_at: datetime) -> bool:
+        age = observed_at - updated
+        return -timedelta(minutes=5) <= age <= timedelta(hours=6)
+
+    @staticmethod
+    def _selection_point(
+        market_key: str, outcome: str, raw_point: Decimal | None
+    ) -> Decimal | None:
+        if (
+            raw_point is not None
+            and outcome == "away"
+            and market_key in {"spread", "corners_spread", "cards_spread"}
+        ):
+            return -raw_point
+        return raw_point
 
     @staticmethod
     def _decimal(raw: object) -> Decimal | None:

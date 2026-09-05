@@ -88,10 +88,9 @@ TEAM_SIGNATURE_STOPWORDS = frozenset(
     }
 )
 
-# Publish only tickets that clear the user's explicit value gate. A single
-# selection still needs 1.80+ on its own, but two safer legs can form the coupon
-# when their combined bookmaker price reaches 1.80+ and their combined model
-# probability remains at least 70%.
+# The deep-model route may publish only tickets that clear the explicit value
+# gate. The separate daily market-consensus route is labelled as such and never
+# claims to be a 70% model prediction.
 MIN_SELECTION_PROBABILITY = Decimal(".70")
 MIN_SELECTION_DECIMAL_ODDS = Decimal("1.80")
 MIN_COMBO_LEG_DECIMAL_ODDS = Decimal("1.20")
@@ -207,7 +206,7 @@ class AutoCouponService:
             market_pairs = (
                 await asyncio.wait_for(
                     self._odds.list_market_fixtures(start_utc=now, end_utc=end),
-                    timeout=60,
+                    timeout=180,
                 )
                 if self._odds.available
                 else ()
@@ -231,39 +230,6 @@ class AutoCouponService:
         if not initial:
             raise ValueError("AUTO_COUPON_NO_CURRENT_TOP_LEAGUE_FIXTURES")
         daily_predictions = self._daily_predictions(run_id, initial, markets, now)
-        if self._force_daily_ticket and markets and len(initial) >= 2:
-            forced_selections, forced_tickets = self._forced_daily_coupon(
-                run_id, initial, markets, now
-            )
-            if forced_tickets:
-                rough, critic = self._deterministic_funnel(initial)
-                auto_run = AutoCouponRun(
-                    run_id=run_id,
-                    state="completed",
-                    source_mode=source_mode,
-                    observed_at=now,
-                    covered_league_keys=tuple(dict.fromkeys(item.league.key for item in initial)),
-                    initial_candidates=initial,
-                    rough_decision=rough,
-                    critic_decision=critic,
-                    daily_predictions=daily_predictions,
-                    selections=forced_selections,
-                    tickets=forced_tickets,
-                    rag_case_count=len(memory_context),
-                    actual_cost_usd=Decimal("0"),
-                    notice=self._run_notice(
-                        source_mode=source_mode,
-                        finalist_analysis_timed_out=False,
-                        has_ordered=True,
-                        has_tickets=True,
-                        forced_daily_ticket=True,
-                    ),
-                )
-                if refresh_existing_journal:
-                    self._repository.update_run(auto_run)
-                else:
-                    self._repository.save(auto_run)
-                return auto_run
         if markets and self._funnel is not None:
             try:
                 rough, critic, funnel_cost = await asyncio.wait_for(
@@ -276,7 +242,11 @@ class AutoCouponService:
                 )
                 funnel_cost = Decimal("0")
         elif markets:
-            rough, critic = self._deterministic_funnel(initial)
+            rough, critic = self._empty_funnel_after_journal(
+                initial,
+                "Gemini kapalı; bağımsız model analizi yapılmadı. Yalnız canlı piyasa "
+                "konsensüsü jurnale alındı.",
+            )
             funnel_cost = Decimal("0")
         else:
             rough, critic = self._empty_funnel_after_journal(
@@ -286,7 +256,7 @@ class AutoCouponService:
             funnel_cost = Decimal("0")
 
         by_id = {item.fixture.id: item for item in initial}
-        if markets and not critic.selected_fixture_ids:
+        if markets and self._funnel is not None and not critic.selected_fixture_ids:
             rough, critic = self._deterministic_funnel_after_empty_gemini(initial, rough, critic)
         selections: list[CouponSelection] = []
         analysis_cost = Decimal("0")
@@ -321,6 +291,12 @@ class AutoCouponService:
                 continue
             if locked.lock_id is None:
                 raise RuntimeError("AUTO_COUPON_LOCK_REQUIRED")
+            if not self._publishable_forecast(locked.forecast):
+                logger.warning(
+                    "Mock forecast rejected from publishable coupon",
+                    extra={"fixture_id": str(fixture_id), "run_id": str(run_id)},
+                )
+                continue
             best = self._best_market_selection(market, locked.forecast, candidate.fixture, now)
             if best is None:
                 continue
@@ -347,6 +323,7 @@ class AutoCouponService:
                     market_fair_probability=quote.fair_probability,
                     edge=edge,
                     bookmaker_count=quote.bookmaker_count,
+                    bookmaker=quote.bookmaker,
                     price_observed_at=quote.observed_at,
                     confidence=locked.forecast.confidence,
                     value_score=value_score,
@@ -454,8 +431,8 @@ class AutoCouponService:
         if forced_daily_ticket:
             return (
                 "Strict %70+ değer kapısından seçim çıkmadı; sezon/maç akışı aktif olduğu "
-                "için gerçek oranlardan zorunlu günlük banko kupon üretildi. Bu forced mod "
-                "%70 garanti iddiası değildir."
+                "için gerçek oranlardan günlük piyasa ikilisi üretildi. Olasılıklar yalnız "
+                "marjı temizlenmiş bookmaker konsensüsüdür; %70 model veya garanti iddiası değildir."
             )
         if finalist_analysis_timed_out and not has_ordered:
             return (
@@ -468,6 +445,10 @@ class AutoCouponService:
                 "forced kupon için de en az iki ayrı gerçek oranlı maç bulunamadı."
             )
         return "Olasılıksal seçimdir; kesinlik veya bahis tavsiyesi değildir."
+
+    @staticmethod
+    def _publishable_forecast(forecast: FinalForecast) -> bool:
+        return forecast.analysis_provider != "mock"
 
     def _is_reusable(self, run: AutoCouponRun, now: datetime) -> bool:
         scan_end = self._scan_end(now)
@@ -592,19 +573,23 @@ class AutoCouponService:
                 or fixture.away_score is None
             ):
                 continue
-            try:
-                lock = self._analysis.get_lock(pending.lock_id)
-            except (KeyError, ValueError):
-                actual = result_outcome(
-                    MatchResult(
-                        fixture_id=fixture.id,
-                        home_score=fixture.home_score,
-                        away_score=fixture.away_score,
-                        observed_at=fixture.observed_at or datetime.now(UTC),
-                        source=fixture.source_provider,
-                    )
-                )
-                settlement_status = self._settlement_status(pending.pick, fixture, actual)
+            match_result = MatchResult(
+                fixture_id=fixture.id,
+                home_score=fixture.home_score,
+                away_score=fixture.away_score,
+                observed_at=fixture.observed_at or datetime.now(UTC),
+                source=fixture.source_provider,
+            )
+            actual = result_outcome(match_result)
+            settlement_status = self._settlement_status(pending.pick, fixture, actual)
+            if pending.lock_id is None:
+                lock = None
+            else:
+                try:
+                    lock = self._analysis.get_lock(pending.lock_id)
+                except (KeyError, ValueError):
+                    lock = None
+            if lock is None or not self._is_match_result_pick(pending.pick):
                 self._repository.mark_settled(
                     auto_run_id=pending.auto_run_id,
                     fixture_id=pending.fixture_id,
@@ -615,7 +600,7 @@ class AutoCouponService:
                     post_match={
                         "autopsy_id": None,
                         "result_verdict": settlement_status,
-                        "process_verdict": "forced_daily_score_settlement",
+                        "process_verdict": "selected_market_score_settlement",
                         "realized_outcome": actual,
                         "explanation": self._forced_settlement_explanation(
                             pending.pick, fixture, settlement_status
@@ -625,16 +610,8 @@ class AutoCouponService:
             else:
                 autopsy = self._post_match.ingest(
                     lock,
-                    MatchResult(
-                        fixture_id=fixture.id,
-                        home_score=fixture.home_score,
-                        away_score=fixture.away_score,
-                        observed_at=fixture.observed_at or datetime.now(UTC),
-                        source=fixture.source_provider,
-                    ),
+                    match_result,
                 )
-                actual = result_outcome(autopsy.result)
-                settlement_status = self._settlement_status(pending.pick, fixture, actual)
                 self._repository.mark_settled(
                     auto_run_id=pending.auto_run_id,
                     fixture_id=pending.fixture_id,
@@ -649,13 +626,22 @@ class AutoCouponService:
                         "predicted_outcome": autopsy.predicted_outcome,
                         "realized_outcome": autopsy.realized_outcome,
                         "brier_score": str(autopsy.brier_score),
-                        "explanation": autopsy.post_match_explanation,
+                        "explanation": self._forced_settlement_explanation(
+                            pending.pick, fixture, settlement_status
+                        ),
+                        "forecast_autopsy_explanation": autopsy.post_match_explanation,
                         "variance": [item.model_dump(mode="json") for item in autopsy.variance],
                         "lesson": autopsy.lesson.model_dump(mode="json"),
                     },
                 )
             settled += 1
         return settled
+
+    @staticmethod
+    def _is_match_result_pick(pick: str) -> bool:
+        if pick in ("home", "draw", "away"):
+            return True
+        return pick.split(":", maxsplit=1)[0] == "h2h"
 
     async def _refresh_pending_fixture_result(self, pending: Any) -> CanonicalFixture | None:
         snapshot = getattr(pending, "fixture", None)
@@ -776,6 +762,15 @@ class AutoCouponService:
             line = Decimal(raw_line)
         except (InvalidOperation, ValueError):
             return "void"
+        if market_key in {
+            "totals",
+            "alternate_totals",
+            "team_totals",
+            "alternate_team_totals",
+            "spread",
+            "spread_v2",
+        } and not AutoCouponService._line_is_fully_settleable(line):
+            return "void"
         if market_key in ("totals", "alternate_totals"):
             goals = Decimal(fixture.home_score + fixture.away_score)
         elif market_key in ("team_totals", "alternate_team_totals"):
@@ -785,11 +780,12 @@ class AutoCouponService:
                 goals = Decimal(fixture.away_score)
             else:
                 return "void"
-        elif market_key == "spread":
+        elif market_key in ("spread", "spread_v2"):
             if outcome == "home":
                 adjusted_margin = Decimal(fixture.home_score - fixture.away_score) + line
             elif outcome == "away":
-                adjusted_margin = Decimal(fixture.away_score - fixture.home_score) - line
+                adjusted_margin = Decimal(fixture.away_score - fixture.home_score)
+                adjusted_margin += line if market_key == "spread_v2" else -line
             else:
                 return "void"
             if adjusted_margin == 0:
@@ -808,7 +804,7 @@ class AutoCouponService:
     ) -> str:
         """Create an evidence-bound explanation for forced tickets.
 
-        Forced tickets do not have the expensive deep-analysis lock, so their
+        Market-consensus tickets do not have a deep-analysis lock, so their
         review must not invent tactical or late-goal narratives. It records
         only the observed score and the market rule that did or did not land.
         """
@@ -821,7 +817,7 @@ class AutoCouponService:
         total_goals = home + away
         if market_key in ("totals", "alternate_totals", "first_half_totals"):
             detail = f"Toplam gol {total_goals}; seçilen çizgi {line}."
-        elif market_key in ("spread", "corners_spread", "cards_spread"):
+        elif market_key in ("spread", "spread_v2", "corners_spread", "cards_spread"):
             detail = f"Skor farkı {home - away}; seçilen handikap çizgisi {line}."
         elif market_key == "btts":
             detail = f"Karşılıklı gol {'var' if home > 0 and away > 0 else 'yok'}."
@@ -834,7 +830,7 @@ class AutoCouponService:
             detail = "Pazar kuralı nihai skor üzerinden hesaplandı."
         verdict = "tuttu" if status == "won" else "kaybetti" if status == "lost" else "void oldu"
         return (
-            f"Forced günlük bacak {verdict}. Nihai skor: {score}. {detail} "
+            f"Piyasa konsensüsü bacağı {verdict}. Nihai skor: {score}. {detail} "
             "Gol dakikası veya kadro/haber olayı doğrulanmadığı için neden uydurulmadı; "
             "sonuç aynı marketin sonraki seçim cezasına dahil edildi."
         )
@@ -906,12 +902,16 @@ class AutoCouponService:
             if quote is not None:
                 probability = cls._journal_probability(candidate, quote)
                 score = cls._journal_score(candidate, quote, probability)
+                fully_settleable = cls._fully_settleable_quote(quote)
                 tier: Literal["journal_only", "watchlist", "coupon_candidate"] = (
                     "coupon_candidate"
-                    if probability >= MIN_SELECTION_PROBABILITY
+                    if fully_settleable
+                    and probability >= MIN_SELECTION_PROBABILITY
                     and quote.decimal_odds >= MIN_COMBO_LEG_DECIMAL_ODDS
                     else "watchlist"
-                    if probability >= Decimal(".58") and quote.decimal_odds >= Decimal("1.45")
+                    if fully_settleable
+                    and probability >= Decimal(".58")
+                    and quote.decimal_odds >= Decimal("1.45")
                     else "journal_only"
                 )
                 pick = cls._pick_key(quote)
@@ -923,13 +923,20 @@ class AutoCouponService:
                 market_decimal_odds = quote.decimal_odds
                 market_fair_probability = quote.fair_probability
                 bookmaker_count = quote.bookmaker_count
+                bookmaker = quote.bookmaker
                 confidence = cls._journal_confidence(candidate, quote)
                 observed_at = quote.observed_at
                 price_reason = (
-                    f"{quote.bookmaker_count} bookmaker ortalaması {quote.decimal_odds} oran ve "
-                    f"%{(quote.fair_probability * 100).quantize(Decimal('.1'))} marj temizlenmiş piyasa olasılığı veriyor."
+                    f"{quote.bookmaker or quote.provider} kaynağında alınabilir oran "
+                    f"{quote.decimal_odds}; {quote.bookmaker_count} bookmaker konsensüsü "
+                    f"%{(quote.fair_probability * 100).quantize(Decimal('.1'))} marjı "
+                    "temizlenmiş piyasa olasılığı veriyor."
                 )
-                price_risk = "Bookmaker piyasası tek başına gerçek sebep kanıtı değildir."
+                price_risk = (
+                    "Bookmaker piyasası tek başına gerçek sebep kanıtı değildir."
+                    if fully_settleable
+                    else "Bu pazar için doğrulanmış sonuç alanı yok; yalnız gözlem, isabet metriği değil."
+                )
             else:
                 probability = cls._fixture_only_probability(candidate)
                 score = cls._fixture_only_score(candidate, probability)
@@ -943,6 +950,7 @@ class AutoCouponService:
                 market_decimal_odds = None
                 market_fair_probability = None
                 bookmaker_count = 0
+                bookmaker = None
                 confidence = min(
                     Decimal(".62"),
                     (Decimal(".30") + Decimal(candidate.auto_score) / Decimal("300")).quantize(
@@ -984,14 +992,16 @@ class AutoCouponService:
                     market_decimal_odds=market_decimal_odds,
                     market_fair_probability=market_fair_probability,
                     bookmaker_count=bookmaker_count,
+                    bookmaker=bookmaker,
                     confidence=confidence,
                     score=score,
                     tier=tier,
                     reasons=(
                         f"{candidate.league.name} izin listesinde ve aday skoru {candidate.auto_score}/100.",
                         price_reason,
-                        f"Günlük takip olasılığı %{(probability * 100).quantize(Decimal('.1'))}; "
-                        "bu kupon kilidi değil, ertesi gün ölçülecek jurnal tahminidir.",
+                        f"Marjı temizlenmiş piyasa konsensüsü "
+                        f"%{(probability * 100).quantize(Decimal('.1'))}; bu oran bağımsız "
+                        "model tahmini veya garanti değildir.",
                     ),
                     risks=(
                         *candidate.risk_flags[:2],
@@ -1011,11 +1021,16 @@ class AutoCouponService:
         fresh_quotes = tuple(
             quote
             for quote in market.quotes
-            if quote.bookmaker_count >= 1 and now - quote.observed_at <= timedelta(hours=24)
+            if quote.bookmaker_count >= 1
+            and -timedelta(minutes=5) <= now - quote.observed_at <= timedelta(hours=6)
         )
-        quotes = fresh_quotes or market.quotes
-        reviewable = tuple(quote for quote in quotes if cls._journalable_market(quote.market_key))
-        quotes = reviewable or quotes
+        if not fresh_quotes:
+            return None
+        reviewable = tuple(quote for quote in fresh_quotes if cls._fully_settleable_quote(quote))
+        observable = tuple(
+            quote for quote in fresh_quotes if cls._journalable_market(quote.market_key)
+        )
+        quotes = reviewable or observable
         preferred = tuple(quote for quote in quotes if quote.decimal_odds >= Decimal("1.35"))
         pool = preferred or quotes
         richer_pool = tuple(quote for quote in pool if quote.market_key != "h2h")
@@ -1047,6 +1062,26 @@ class AutoCouponService:
             "spread",
             "odd_even",
         }
+
+    @staticmethod
+    def _line_is_fully_settleable(point: Decimal) -> bool:
+        """Only integer and half lines have a binary won/lost/void settlement."""
+        doubled = point * Decimal("2")
+        return doubled == doubled.to_integral_value()
+
+    @classmethod
+    def _fully_settleable_quote(cls, quote: MarketQuote) -> bool:
+        if not cls._settleable_market(quote.market_key):
+            return False
+        if quote.market_key in {
+            "totals",
+            "alternate_totals",
+            "team_totals",
+            "alternate_team_totals",
+            "spread",
+        }:
+            return quote.point is not None and cls._line_is_fully_settleable(quote.point)
+        return True
 
     @staticmethod
     def _journalable_market(market_key: str) -> bool:
@@ -1086,10 +1121,8 @@ class AutoCouponService:
 
     @staticmethod
     def _journal_probability(candidate: AutoCandidate, quote: MarketQuote) -> Decimal:
-        score_lift = (Decimal(candidate.auto_score) - Decimal("70")) / Decimal("1000")
-        coverage_lift = Decimal(min(quote.bookmaker_count, 8)) / Decimal("1000")
-        probability = quote.fair_probability + score_lift + coverage_lift
-        return min(Decimal(".92"), max(Decimal(".05"), probability)).quantize(
+        del candidate
+        return min(Decimal(".99"), max(Decimal(".01"), quote.fair_probability)).quantize(
             Decimal(".000001"), rounding=ROUND_HALF_UP
         )
 
@@ -1135,10 +1168,19 @@ class AutoCouponService:
         fixture: CanonicalFixture,
         status: str,
     ) -> DailyPredictionReviewItem:
-        sound = prediction.confidence >= Decimal(".58") and prediction.bookmaker_count >= 2
+        market_consensus_only = (
+            prediction.market_fair_probability is not None
+            and abs(prediction.probability - prediction.market_fair_probability)
+            <= Decimal(".000001")
+        )
+        sound = (
+            not market_consensus_only
+            and prediction.confidence >= Decimal(".58")
+            and prediction.bookmaker_count >= 2
+        )
         market_result = cls._realized_market_summary(prediction, fixture)
         process_note = cls._process_review_note(prediction, status)
-        if status == "void":
+        if status == "void" or market_consensus_only:
             verdict = "insufficient_data"
         elif status == "won":
             verdict = "sound_win" if sound else "lucky_win"
@@ -1242,12 +1284,13 @@ class AutoCouponService:
             team = prediction.market_description or description or "takım"
             line_text = str(line) if line is not None else "belirsiz"
             return f"{team} gol sayısı {target_goals}; takım gol çizgisi {line_text}."
-        if market_key == "spread":
+        if market_key in ("spread", "spread_v2"):
             handicap = line or Decimal("0")
             adjusted = (
                 Decimal(home - away) + handicap
                 if outcome == "home"
-                else Decimal(away - home) - handicap
+                else Decimal(away - home)
+                + (handicap if market_key == "spread_v2" else -handicap)
             )
             return f"Handikap hesabı {adjusted}; çıplak skor farkı {home - away}."
         if market_key == "odd_even":
@@ -1269,6 +1312,15 @@ class AutoCouponService:
             depth = "piyasa derinliği orta"
         else:
             depth = "piyasa derinliği iyi"
+        if (
+            prediction.market_fair_probability is not None
+            and abs(prediction.probability - prediction.market_fair_probability)
+            <= Decimal(".000001")
+        ):
+            return (
+                f"Ön kayıt bookmaker konsensüsü %{probability_pct}, {odds_text}; {depth}. "
+                "Bağımsız model olasılığı olmadığı için süreç başarısı olarak etiketlenmez."
+            )
         if status == "won":
             return (
                 f"Ön tahmin %{probability_pct}, {odds_text}; {depth}. "
@@ -1472,11 +1524,14 @@ class AutoCouponService:
         candidates: list[tuple[Decimal, MarketQuote, Decimal, Decimal]] = []
         for quote in market.quotes:
             minimum_books = 1 if quote.provider == "rapidapi_football" else 2
-            if quote.bookmaker_count < minimum_books or now - quote.observed_at > timedelta(
-                minutes=15
+            quote_age = now - quote.observed_at
+            if (
+                quote.bookmaker_count < minimum_books
+                or quote_age < -timedelta(minutes=5)
+                or quote_age > timedelta(minutes=15)
             ):
                 continue
-            if not cls._settleable_market(quote.market_key):
+            if not cls._fully_settleable_quote(quote):
                 continue
             probability = cls._model_market_probability(forecast, fixture, quote)
             if probability is None or probability < MIN_SELECTION_PROBABILITY:
@@ -1633,7 +1688,7 @@ class AutoCouponService:
                 if outcome == "home":
                     adjusted = Decimal(home_goals - away_goals) + point
                 else:
-                    adjusted = Decimal(away_goals - home_goals) - point
+                    adjusted = Decimal(away_goals - home_goals) + point
                 if adjusted > 0:
                     probability += home_prob * away_prob
         return min(Decimal("1"), max(Decimal("0"), probability))
@@ -1677,7 +1732,8 @@ class AutoCouponService:
     def _pick_key(quote: MarketQuote) -> str:
         description = (quote.description or "match").replace(":", "-")
         line = str(quote.point) if quote.point is not None else "none"
-        return f"{quote.market_key}:{description}:{quote.outcome_key}:{line}"
+        pick_market_key = "spread_v2" if quote.market_key == "spread" else quote.market_key
+        return f"{pick_market_key}:{description}:{quote.outcome_key}:{line}"
 
     @staticmethod
     def _selection_label(quote: MarketQuote) -> str:
@@ -1744,9 +1800,10 @@ class AutoCouponService:
             if market is None:
                 continue
             for quote in market.quotes:
-                if now - quote.observed_at > timedelta(hours=6):
+                quote_age = now - quote.observed_at
+                if quote_age < -timedelta(minutes=5) or quote_age > timedelta(hours=6):
                     continue
-                if quote.bookmaker_count < 2 or not self._settleable_market(quote.market_key):
+                if quote.bookmaker_count < 2 or not self._fully_settleable_quote(quote):
                     continue
                 if quote.decimal_odds < Decimal("1.30") or quote.decimal_odds > Decimal("2.05"):
                     continue
@@ -1824,7 +1881,7 @@ class AutoCouponService:
         )
         ticket = CouponTicket(
             kind="double",
-            label="Zorunlu günlük banko ikilisi",
+            label="Günlük piyasa ikilisi",
             selection_fixture_ids=tuple(item.fixture.id for item in selections),
             combined_probability=combined_probability.quantize(
                 Decimal(".000001"), rounding=ROUND_HALF_UP
@@ -1832,7 +1889,7 @@ class AutoCouponService:
             combined_decimal_odds=combined_odds.quantize(
                 Decimal(".01"), rounding=ROUND_HALF_UP
             ),
-            odds_source="bookmaker_average",
+            odds_source="best_bookmaker_quotes",
             risk_label="orta" if combined_probability >= Decimal(".55") else "yüksek",
         )
         return selections, (ticket,)
@@ -1908,14 +1965,6 @@ class AutoCouponService:
         now: datetime,
     ) -> CouponSelection:
         pick = self._pick_key(quote)
-        analysis_run_id = uuid5(
-            NAMESPACE_URL,
-            f"miron-baba-ai:forced-analysis:{run_id}:{candidate.fixture.id}:{pick}",
-        )
-        lock_id = uuid5(
-            NAMESPACE_URL,
-            f"miron-baba-ai:forced-lock:{run_id}:{candidate.fixture.id}:{pick}",
-        )
         model_fair_odds = (Decimal("1") / probability).quantize(
             Decimal(".01"), rounding=ROUND_HALF_UP
         )
@@ -1927,8 +1976,8 @@ class AutoCouponService:
         return CouponSelection(
             fixture=candidate.fixture,
             league=candidate.league,
-            analysis_run_id=analysis_run_id,
-            lock_id=lock_id,
+            analysis_run_id=None,
+            lock_id=None,
             pick=pick,
             market_key=quote.market_key,
             market_label=quote.market_label,
@@ -1941,31 +1990,34 @@ class AutoCouponService:
             market_fair_probability=quote.fair_probability,
             edge=edge,
             bookmaker_count=quote.bookmaker_count,
+            bookmaker=quote.bookmaker,
             price_observed_at=quote.observed_at,
             confidence=min(Decimal(".72"), Decimal(".42") + probability / Decimal("3")),
             value_score=value_score,
             reason=(
-                "Zorunlu günlük banko modu: strict değer kapısı boş kaldığı için gerçek "
+                "Günlük piyasa modu: strict model değer kapısı boş kaldığı için gerçek "
                 f"oranlı {quote.market_label} / {self._selection_label(quote)} bacağı seçildi; "
-                f"piyasa-temelli olasılık %{(probability * 100).quantize(Decimal('.1'))}."
+                f"marjı temizlenmiş bookmaker konsensüsü "
+                f"%{(probability * 100).quantize(Decimal('.1'))}."
             ),
             uncertainty=(
-                "Forced mod %70 garanti iddiası değildir; maç önü haber, kadro ve piyasa "
-                "kayması kapanışa kadar yeniden kontrol edilmelidir."
+                "Bu oran bağımsız model tahmini veya %70 garanti iddiası değildir; maç önü "
+                "haber, kadro ve piyasa kayması kapanışa kadar değişebilir."
             ),
             rationale=DecisionRationale(
                 market_thesis=(
-                    "Strict model kuponu çıkmadığında günlük süreklilik için en güvenli "
-                    "gerçek oranlı bacaklardan biri seçildi."
+                    "Strict model kuponu çıkmadığında günlük kayıt için en yüksek puanlı "
+                    "gerçek oranlı piyasa bacaklarından biri seçildi."
                 ),
                 supporting_evidence=(
                     f"{candidate.league.name} izin listesinde",
-                    f"{quote.bookmaker_count} bookmaker/provider gerçek oranı",
+                    f"{quote.bookmaker or quote.provider} kaynağında alınabilir oran",
+                    f"{quote.bookmaker_count} bookmaker ile piyasa konsensüsü",
                     f"Aday skoru {candidate.auto_score}/100",
                 ),
                 counter_evidence=(
                     "Strict %70+ değer kapısı geçilmedi",
-                    "Bu forced seçim bağımsız derin model kilidi değil, piyasa-temelli günlük kupondur",
+                    "Bu seçim bağımsız derin model kilidi değil, piyasa-temelli günlük kupondur",
                 ),
                 price_rationale=(
                     f"Kilit anı oranı {quote.decimal_odds}; marjı temizlenmiş piyasa "
@@ -1977,8 +2029,8 @@ class AutoCouponService:
                     "Provider kimliği veya maç eşleşmesi sonradan uyuşmazlık gösterirse",
                 ),
                 model_disagreement=(
-                    f"Forced edge %{(edge * 100).quantize(Decimal('.1'))}; strict değer "
-                    "kanıtı sayılmaz."
+                    f"Konsensüs edge %{(edge * 100).quantize(Decimal('.1'))}; bağımsız model "
+                    "edge'i veya strict değer kanıtı sayılmaz."
                 ),
                 evidence_cutoff_at=now,
             ),

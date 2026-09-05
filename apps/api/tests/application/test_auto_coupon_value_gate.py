@@ -73,6 +73,13 @@ def test_value_gate_rejects_probability_below_seventy_percent() -> None:
     assert selected is None
 
 
+def test_mock_forecast_is_never_publishable() -> None:
+    assert AutoCouponService._publishable_forecast(
+        _forecast(".75").model_copy(update={"analysis_provider": "mock"})
+    ) is False
+    assert AutoCouponService._publishable_forecast(_forecast(".75")) is True
+
+
 def test_value_gate_accepts_lower_price_as_combo_leg_candidate() -> None:
     selected = AutoCouponService._best_market_selection(
         _market(price="1.35", fair_probability=".65"), _forecast(".75"), FIXTURE, NOW

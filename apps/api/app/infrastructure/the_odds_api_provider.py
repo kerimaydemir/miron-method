@@ -299,17 +299,23 @@ class TheOddsApiProvider:
             kickoff = kickoff.replace(tzinfo=UTC)
         if kickoff <= observed_at:
             return None
-        home_prices: list[Decimal] = []
-        draw_prices: list[Decimal] = []
-        away_prices: list[Decimal] = []
-        latest_updates: list[datetime] = []
+        h2h_by_bookmaker: dict[str, tuple[Decimal, Decimal, Decimal, datetime]] = {}
         quote_groups: dict[
             tuple[str, str | None, Decimal | None],
-            dict[str, list[tuple[Decimal, datetime, str]]],
+            dict[str, dict[str, tuple[Decimal, datetime]]],
         ] = {}
         for bookmaker in event.bookmakers:
             for market in bookmaker.markets:
-                market_observed_at = market.last_update or bookmaker.last_update or observed_at
+                market_observed_at = market.last_update or bookmaker.last_update
+                if market_observed_at is None:
+                    continue
+                if market_observed_at.tzinfo is None:
+                    market_observed_at = market_observed_at.replace(tzinfo=UTC)
+                else:
+                    market_observed_at = market_observed_at.astimezone(UTC)
+                age = observed_at - market_observed_at
+                if age < -timedelta(minutes=5) or age > timedelta(hours=6):
+                    continue
                 if market.key not in TheOddsApiProvider.default_supported_market_keys:
                     continue
                 for item in market.outcomes:
@@ -319,9 +325,14 @@ class TheOddsApiProvider:
                     if normalized_outcome is None:
                         continue
                     group_key = (market.key, item.description, item.point)
-                    quote_groups.setdefault(group_key, {}).setdefault(
-                        normalized_outcome, []
-                    ).append((item.price, market_observed_at, item.name))
+                    outcomes = quote_groups.setdefault(group_key, {}).setdefault(
+                        bookmaker.key, {}
+                    )
+                    existing = outcomes.get(normalized_outcome)
+                    if existing is None or market_observed_at > existing[1] or (
+                        market_observed_at == existing[1] and item.price > existing[0]
+                    ):
+                        outcomes[normalized_outcome] = (item.price, market_observed_at)
                 if market.key != "h2h":
                     continue
                 prices = {item.name.casefold(): item.price for item in market.outcomes}
@@ -329,12 +340,17 @@ class TheOddsApiProvider:
                 draw = prices.get("draw")
                 away = prices.get(event.away_team.casefold())
                 if home is not None and draw is not None and away is not None:
-                    home_prices.append(home)
-                    draw_prices.append(draw)
-                    away_prices.append(away)
-                    latest_updates.append(market_observed_at)
-        if not home_prices:
+                    h2h_by_bookmaker[bookmaker.key] = (
+                        home,
+                        draw,
+                        away,
+                        market_observed_at,
+                    )
+        if not h2h_by_bookmaker:
             return None
+        home_prices = [item[0] for item in h2h_by_bookmaker.values()]
+        draw_prices = [item[1] for item in h2h_by_bookmaker.values()]
+        away_prices = [item[2] for item in h2h_by_bookmaker.values()]
         avg_home = sum(home_prices, Decimal("0")) / len(home_prices)
         avg_draw = sum(draw_prices, Decimal("0")) / len(draw_prices)
         avg_away = sum(away_prices, Decimal("0")) / len(away_prices)
@@ -344,22 +360,43 @@ class TheOddsApiProvider:
         fair_draw = (raw[1] / total).quantize(Decimal(".000001"), rounding=ROUND_HALF_UP)
         fair_away = Decimal("1") - fair_home - fair_draw
         normalized_quotes: list[MarketQuote] = []
-        for (market_key, description, point), outcomes in quote_groups.items():
+        for (market_key, description, point), outcomes_by_bookmaker in quote_groups.items():
             required = TheOddsApiProvider._required_outcomes(market_key)
-            if required is None or not all(outcome in outcomes for outcome in required):
+            if required is None:
+                continue
+            complete_bookmakers = {
+                bookmaker: outcomes
+                for bookmaker, outcomes in outcomes_by_bookmaker.items()
+                if all(outcome in outcomes for outcome in required)
+            }
+            if not complete_bookmakers:
                 continue
             averages = {
-                outcome: sum((item[0] for item in outcomes[outcome]), Decimal("0"))
-                / len(outcomes[outcome])
+                outcome: sum(
+                    (outcomes[outcome][0] for outcomes in complete_bookmakers.values()),
+                    Decimal("0"),
+                )
+                / len(complete_bookmakers)
                 for outcome in required
             }
             raw_probabilities = {outcome: Decimal("1") / averages[outcome] for outcome in required}
             overround = sum(raw_probabilities.values(), Decimal("0"))
             for outcome in required:
-                samples = outcomes[outcome]
-                observed = max(item[1] for item in samples)
+                best_bookmaker, best_sample = max(
+                    (
+                        (bookmaker, outcomes[outcome])
+                        for bookmaker, outcomes in complete_bookmakers.items()
+                    ),
+                    key=lambda item: item[1][0],
+                )
+                observed = min(
+                    outcomes[required_outcome][1]
+                    for outcomes in complete_bookmakers.values()
+                    for required_outcome in required
+                )
                 normalized_quotes.append(
                     MarketQuote(
+                        provider="the_odds_api",
                         observed_at=observed,
                         market_key=market_key,
                         market_label=TheOddsApiProvider._market_label(market_key),
@@ -367,13 +404,14 @@ class TheOddsApiProvider:
                         outcome_label=TheOddsApiProvider._outcome_label(outcome),
                         description=description,
                         point=point,
-                        decimal_odds=averages[outcome].quantize(
+                        decimal_odds=best_sample[0].quantize(
                             Decimal(".001"), rounding=ROUND_HALF_UP
                         ),
                         fair_probability=(raw_probabilities[outcome] / overround).quantize(
                             Decimal(".000001"), rounding=ROUND_HALF_UP
                         ),
-                        bookmaker_count=len(samples),
+                        bookmaker_count=len(complete_bookmakers),
+                        bookmaker=best_bookmaker,
                     )
                 )
         league = next(item for item in TOP_LEAGUES if item.odds_sport_key == event.sport_key)
@@ -391,8 +429,8 @@ class TheOddsApiProvider:
         )
         normalized_market = MarketOdds(
             event_id=event.id,
-            observed_at=max(latest_updates),
-            bookmaker_count=len(home_prices),
+            observed_at=min(item[3] for item in h2h_by_bookmaker.values()),
+            bookmaker_count=len(h2h_by_bookmaker),
             home_decimal=avg_home.quantize(Decimal(".001"), rounding=ROUND_HALF_UP),
             draw_decimal=avg_draw.quantize(Decimal(".001"), rounding=ROUND_HALF_UP),
             away_decimal=avg_away.quantize(Decimal(".001"), rounding=ROUND_HALF_UP),

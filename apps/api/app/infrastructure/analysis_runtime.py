@@ -84,7 +84,10 @@ if rapidapi_provider is not None:
     configured_deep_evidence_providers.append(rapidapi_provider)
 
 deep_evidence_provider = (
-    CompositeDeepEvidenceProvider(tuple(configured_deep_evidence_providers))
+    CompositeDeepEvidenceProvider(
+        tuple(configured_deep_evidence_providers),
+        provider_timeout_seconds=settings.DEEP_EVIDENCE_PROVIDER_TIMEOUT_SECONDS,
+    )
     if len(configured_deep_evidence_providers) > 1
     else configured_deep_evidence_providers[0]
     if len(configured_deep_evidence_providers) == 1

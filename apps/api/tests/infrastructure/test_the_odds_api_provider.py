@@ -8,8 +8,11 @@ from app.infrastructure.the_odds_api_provider import TheOddsApiProvider
 
 
 @pytest.mark.asyncio
-async def test_provider_normalizes_bookmaker_average_and_removes_overround() -> None:
+async def test_provider_uses_real_best_price_and_consensus_probability() -> None:
     kickoff = datetime.now(UTC) + timedelta(days=1)
+    fresh_update = (datetime.now(UTC) - timedelta(minutes=1)).isoformat().replace(
+        "+00:00", "Z"
+    )
 
     async def handler(request: httpx.Request) -> httpx.Response:
         assert request.method == "GET"
@@ -49,7 +52,7 @@ async def test_provider_normalizes_bookmaker_average_and_removes_overround() -> 
             "bookmakers": [
                 {
                     "key": "book-a",
-                    "last_update": "2026-08-22T08:00:00Z",
+                    "last_update": fresh_update,
                     "markets": [
                         {
                             "key": "h2h",
@@ -64,7 +67,7 @@ async def test_provider_normalizes_bookmaker_average_and_removes_overround() -> 
                 },
                 {
                     "key": "book-b",
-                    "last_update": "2026-08-22T08:01:00Z",
+                    "last_update": fresh_update,
                     "markets": [
                         {
                             "key": "h2h",
@@ -109,6 +112,9 @@ async def test_provider_normalizes_bookmaker_average_and_removes_overround() -> 
     )
     assert total == Decimal("1.000000")
     assert {item.market_key for item in market.quotes} == {"h2h"}
+    home_quote = next(item for item in market.quotes if item.outcome_key == "home")
+    assert home_quote.decimal_odds == Decimal("2.200")
+    assert home_quote.bookmaker == "book-b"
     wide = await provider.wide_market_for(fixture.id)
     assert {item.market_key for item in wide.quotes} == {"h2h", "btts", "totals"}
     assert all(item.bookmaker_count == 2 for item in wide.quotes)

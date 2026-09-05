@@ -65,6 +65,11 @@ def _compact(value: object, width: int = 170) -> str:
     return shorten(_text(value), width=width, placeholder="…")
 
 
+def _bookmaker_suffix(value: object) -> str:
+    bookmaker = "" if value is None else " ".join(str(value).split())
+    return f" [{bookmaker}]" if bookmaker else ""
+
+
 def _title(report: Mapping[str, object]) -> str:
     phase = _text(report.get("phase"))
     day = _text(report.get("day"))
@@ -88,6 +93,7 @@ def build_pre_match_message(report: Mapping[str, object]) -> str:
                 lines.append(
                     f"{leg_index}) {_text(leg.get('fixture'))} — "
                     f"{_text(leg.get('pick'))} @{_odds(leg.get('odds'))}"
+                    f"{_bookmaker_suffix(leg.get('bookmaker'))}"
                 )
     else:
         priced_predictions = tuple(
@@ -103,15 +109,18 @@ def build_pre_match_message(report: Mapping[str, object]) -> str:
             item = _as_mapping(item_value)
             lines.append(
                 f"{index}) {_text(item.get('fixture'))} — {_text(item.get('pick'))} "
-                f"@{_odds(item.get('odds'))}"
+                f"@{_odds(item.get('odds'))}{_bookmaker_suffix(item.get('bookmaker'))}"
             )
     return "\n".join(lines).strip()
 
 
 def build_post_match_message(report: Mapping[str, object]) -> str:
+    ticket_reviews = _as_sequence(report.get("ticket_reviews"))
+    daily_reviews = _as_sequence(report.get("daily_reviews"))
+    if not ticket_reviews and not daily_reviews:
+        return ""
     performance = _as_mapping(report.get("performance"))
     lines = [_title(report)]
-    ticket_reviews = _as_sequence(report.get("ticket_reviews"))
     if ticket_reviews:
         lines.append("Kupon sonucu:")
         icons = {
@@ -132,9 +141,9 @@ def build_post_match_message(report: Mapping[str, object]) -> str:
                     f"• {_text(leg.get('fixture'))}: {_text(leg.get('pick'))} "
                     f"@{_odds(leg.get('odds'))} | {_text(leg.get('score'))} | "
                     f"{icons.get(_text(leg.get('status')), '⏳ Bekliyor')}"
+                    f"{_bookmaker_suffix(leg.get('bookmaker'))}"
                 )
 
-    daily_reviews = _as_sequence(report.get("daily_reviews"))
     if daily_reviews:
         lines.append("Diğer sonuçlar:")
         icons = {"won": "✅ Tuttu", "lost": "❌ Kaybetti", "void": "➖ Void"}
@@ -252,7 +261,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         print("Telegram skipped: report path was not provided.")
         return 0
     report = load_report(args.report)
-    send_telegram_message(token=token, chat_id=chat_id, message=build_message(report))
+    message = build_message(report)
+    if not message:
+        print("Telegram skipped: no newly settled results.")
+        return 0
+    send_telegram_message(token=token, chat_id=chat_id, message=message)
     print("Telegram notification sent.")
     return 0
 

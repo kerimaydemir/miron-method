@@ -24,7 +24,10 @@ export type Fixture = {
     | "openligadb"
     | "football_data_org"
     | "the_odds_api"
-    | "rapidapi_football";
+    | "odds_api_io"
+    | "rapidapi_football"
+    | "api_football"
+    | "espn_core_odds";
   provider_fixture_id: string | null;
   status: "scheduled" | "live" | "finished";
   home_score: number | null;
@@ -33,7 +36,12 @@ export type Fixture = {
 };
 
 export type MarketOdds = {
-  provider: "the_odds_api" | "rapidapi_football" | "api_football";
+  provider:
+    | "the_odds_api"
+    | "odds_api_io"
+    | "rapidapi_football"
+    | "api_football"
+    | "espn_core_odds";
   observed_at: string;
   bookmaker_count: number;
   home_decimal: string;
@@ -66,17 +74,24 @@ export type FunnelDecision = {
 export type CouponSelection = {
   fixture: Fixture;
   league: LeaguePolicy;
-  analysis_run_id: string;
-  lock_id: string;
+  analysis_run_id: string | null;
+  lock_id: string | null;
   pick: Pick;
   market_key:
     | "h2h"
     | "draw_no_bet"
+    | "double_chance"
     | "btts"
     | "totals"
     | "alternate_totals"
     | "team_totals"
-    | "alternate_team_totals";
+    | "alternate_team_totals"
+    | "spread"
+    | "odd_even"
+    | "first_half_h2h"
+    | "first_half_totals"
+    | "corners_spread"
+    | "cards_spread";
   market_label: string;
   outcome_label: string;
   market_description: string | null;
@@ -87,6 +102,7 @@ export type CouponSelection = {
   market_fair_probability: string | null;
   edge: string | null;
   bookmaker_count: number;
+  bookmaker: string | null;
   price_observed_at: string | null;
   confidence: string;
   value_score: string;
@@ -117,7 +133,11 @@ export type CouponTicket = {
   selection_fixture_ids: string[];
   combined_probability: string;
   combined_decimal_odds: string;
-  odds_source: "bookmaker_average" | "model_fair_odds";
+  odds_source:
+    | "bookmaker_average"
+    | "bookmaker_consensus"
+    | "best_bookmaker_quotes"
+    | "model_fair_odds";
   risk_label: "düşük" | "orta" | "yüksek";
 };
 
@@ -129,11 +149,18 @@ export type DailyPrediction = {
   market_key:
     | "h2h"
     | "draw_no_bet"
+    | "double_chance"
     | "btts"
     | "totals"
     | "alternate_totals"
     | "team_totals"
-    | "alternate_team_totals";
+    | "alternate_team_totals"
+    | "spread"
+    | "odd_even"
+    | "first_half_h2h"
+    | "first_half_totals"
+    | "corners_spread"
+    | "cards_spread";
   market_label: string;
   outcome_label: string;
   market_description: string | null;
@@ -142,6 +169,7 @@ export type DailyPrediction = {
   market_decimal_odds: string | null;
   market_fair_probability: string | null;
   bookmaker_count: number;
+  bookmaker: string | null;
   confidence: string;
   score: string;
   tier: "journal_only" | "watchlist" | "coupon_candidate";

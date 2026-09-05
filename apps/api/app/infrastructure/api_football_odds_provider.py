@@ -199,19 +199,18 @@ class ApiFootballOddsProvider:
                 and now - self.observed_at < self._refresh_interval
             ):
                 return
-            season = first_day.year
             responses = await asyncio.gather(
                 *(
                     self._fetch(
                         "/odds",
                         {
                             "league": league_id,
-                            "season": season,
+                            "season": self._season_for_day(first_day, league_key),
                             "date": first_day.isoformat(),
                             "page": 1,
                         },
                     )
-                    for league_id in API_FOOTBALL_LEAGUES.values()
+                    for league_key, league_id in API_FOOTBALL_LEAGUES.items()
                 ),
                 return_exceptions=True,
             )
@@ -313,21 +312,33 @@ class ApiFootballOddsProvider:
             kickoff = kickoff.replace(tzinfo=UTC)
         if kickoff <= fallback_observed_at:
             return None
-        observed_at = cls._parse_datetime(record.get("update")) or fallback_observed_at
+        observed_at = cls._parse_datetime(record.get("update"))
+        if observed_at is None:
+            return None
+        quote_age = fallback_observed_at - observed_at
+        if quote_age < -timedelta(minutes=5) or quote_age > timedelta(hours=6):
+            return None
         home_team = str(home.get("name") or "").strip()
         away_team = str(away.get("name") or "").strip()
         if not home_team or not away_team:
             return None
         quote_groups: dict[
             tuple[str, str | None, Decimal | None],
-            dict[str, list[Decimal]],
+            dict[str, dict[str, Decimal]],
         ] = {}
+        bookmaker_labels: dict[str, str] = {}
         bookmakers = record.get("bookmakers")
         if not isinstance(bookmakers, list):
             return None
         for bookmaker in bookmakers:
             if not isinstance(bookmaker, dict):
                 continue
+            bookmaker_key = str(bookmaker.get("id") or bookmaker.get("name") or "").strip()
+            if not bookmaker_key:
+                continue
+            bookmaker_labels.setdefault(
+                bookmaker_key, str(bookmaker.get("name") or bookmaker_key).strip()
+            )
             bets = bookmaker.get("bets")
             if not isinstance(bets, list):
                 continue
@@ -360,21 +371,40 @@ class ApiFootballOddsProvider:
                         continue
                     if price <= 1:
                         continue
-                    quote_groups.setdefault((market_key, description, point), {}).setdefault(
-                        outcome, []
-                    ).append(price)
+                    outcomes = quote_groups.setdefault(
+                        (market_key, description, point), {}
+                    ).setdefault(bookmaker_key, {})
+                    outcomes[outcome] = max(price, outcomes.get(outcome, Decimal("0")))
         quotes: list[MarketQuote] = []
-        for (market_key, description, point), outcomes in quote_groups.items():
+        for (market_key, description, point), outcomes_by_bookmaker in quote_groups.items():
             required = cls._required_outcomes(market_key)
-            if required is None or not all(outcome in outcomes for outcome in required):
+            if required is None:
+                continue
+            complete_bookmakers = {
+                bookmaker: outcomes
+                for bookmaker, outcomes in outcomes_by_bookmaker.items()
+                if all(outcome in outcomes for outcome in required)
+            }
+            if not complete_bookmakers:
                 continue
             averages = {
-                outcome: sum(outcomes[outcome], Decimal("0")) / len(outcomes[outcome])
+                outcome: sum(
+                    (outcomes[outcome] for outcomes in complete_bookmakers.values()),
+                    Decimal("0"),
+                )
+                / len(complete_bookmakers)
                 for outcome in required
             }
             raw = {outcome: Decimal("1") / averages[outcome] for outcome in required}
             overround = sum(raw.values(), Decimal("0"))
             for outcome in required:
+                best_bookmaker, best_price = max(
+                    (
+                        (bookmaker, outcomes[outcome])
+                        for bookmaker, outcomes in complete_bookmakers.items()
+                    ),
+                    key=lambda item: item[1],
+                )
                 quotes.append(
                     MarketQuote(
                         provider="api_football",
@@ -385,13 +415,14 @@ class ApiFootballOddsProvider:
                         outcome_label=cls._outcome_label(outcome),
                         description=description,
                         point=point,
-                        decimal_odds=averages[outcome].quantize(
+                        decimal_odds=best_price.quantize(
                             Decimal(".001"), rounding=ROUND_HALF_UP
                         ),
                         fair_probability=(raw[outcome] / overround).quantize(
                             Decimal(".000001"), rounding=ROUND_HALF_UP
                         ),
-                        bookmaker_count=len(outcomes[outcome]),
+                        bookmaker_count=len(complete_bookmakers),
+                        bookmaker=bookmaker_labels[best_bookmaker],
                     )
                 )
         h2h = [item for item in quotes if item.market_key == "h2h"]
@@ -517,6 +548,13 @@ class ApiFootballOddsProvider:
         except ValueError:
             return None
         return parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed
+
+    @staticmethod
+    def _season_for_day(day: date, league_key: str) -> int:
+        """API-Football uses the European season start year outside calendar leagues."""
+        if league_key == "mls":
+            return day.year
+        return day.year - 1 if day.month <= 6 else day.year
 
     @staticmethod
     def _optional_int(value: object) -> int | None:

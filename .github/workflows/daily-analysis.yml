@@ -95,7 +95,7 @@ jobs:
           OPENLIGADB_BASE_URL=https://api.openligadb.de
           OPENLIGADB_LEAGUES=pl1,la1,bl1,it1,fr1,nl1,pt1,tr1
           OPENLIGADB_REFRESH_SECONDS=60
-          THE_ODDS_API_KEY=
+          THE_ODDS_API_KEY=${THE_ODDS_API_KEY}
           THE_ODDS_API_BASE_URL=https://api.the-odds-api.com/v4
           THE_ODDS_WIDE_MARKETS=h2h,draw_no_bet,btts,totals,alternate_totals,team_totals,alternate_team_totals
           ODDS_API_IO_KEY=${ODDS_API_IO_KEY}
@@ -103,13 +103,14 @@ jobs:
           ODDS_API_IO_BOOKMAKERS=Bet365,Unibet
           ODDS_API_IO_EVENTS_PER_LEAGUE=5
           ODDS_REFRESH_SECONDS=300
-          BOOKMAKER_PROVIDER_TIMEOUT_SECONDS=20
+          BOOKMAKER_PROVIDER_TIMEOUT_SECONDS=150
+          DEEP_EVIDENCE_PROVIDER_TIMEOUT_SECONDS=150
           AUTO_COUPON_WINDOW_DAYS=1
           AUTO_COUPON_REUSE_SECONDS=60
           AUTO_COUPON_SETTLEMENT_SECONDS=300
           AUTO_COUPON_BACKGROUND_SETTLEMENT_ENABLED=false
           AUTO_COUPON_FINALIST_ANALYSIS_TIMEOUT_SECONDS=180
-          AUTO_COUPON_REQUEST_TIMEOUT_SECONDS=360
+          AUTO_COUPON_REQUEST_TIMEOUT_SECONDS=900
           AUTO_COUPON_FORCE_DAILY_TICKET=true
           AUTO_COUPON_FORCED_MIN_COMBINED_ODDS=1.80
           AUTO_COUPON_FORCED_MAX_COMBINED_ODDS=2.60
@@ -139,19 +140,16 @@ jobs:
           chmod 600 .env
 
       - name: Restore encrypted database state
-        id: restore
         run: |
           set -euo pipefail
-          git fetch origin automation-state || true
-          if git show origin/automation-state:state/postgres.dump.enc > "$RUNNER_TEMP/postgres.dump.enc" 2>/dev/null; then
-            openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 \
-              -pass env:DATA_ENCRYPTION_KEY \
-              -in "$RUNNER_TEMP/postgres.dump.enc" \
-              -out "$RUNNER_TEMP/postgres.dump"
-            echo "restored=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "restored=false" >> "$GITHUB_OUTPUT"
-          fi
+          git fetch origin automation-state
+          git show origin/automation-state:state/postgres.dump.enc > "$RUNNER_TEMP/postgres.dump.enc"
+          test -s "$RUNNER_TEMP/postgres.dump.enc"
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 \
+            -pass env:DATA_ENCRYPTION_KEY \
+            -in "$RUNNER_TEMP/postgres.dump.enc" \
+            -out "$RUNNER_TEMP/postgres.dump"
+          test -s "$RUNNER_TEMP/postgres.dump"
 
       - name: Start database
         run: |
@@ -167,7 +165,6 @@ jobs:
           exit 1
 
       - name: Restore database dump
-        if: steps.restore.outputs.restored == 'true'
         run: |
           set -euo pipefail
           docker compose exec -T postgres pg_restore \
@@ -201,8 +198,6 @@ jobs:
         env:
           PHASE: ${{ steps.phase.outputs.phase }}
           AUTOMATION_TOKEN: ${{ secrets.MIRON_BABA_AUTOMATION_TOKEN }}
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
           set -euo pipefail
           mkdir -p reports
@@ -215,11 +210,6 @@ jobs:
             echo "### MIRON BABA ${PHASE}"
             jq -r '"phase=\(.phase) day=\(.day) daily_predictions=\(.daily_prediction_count // 0) selections=\(.selection_count // 0) tickets=\(.ticket_count // 0) settled=\(.settled_count // 0) daily_reviewed=\(.daily_reviewed_count // 0) notice=\(.notice // "ok")"' "reports/${PHASE}.json"
           } >> "$GITHUB_STEP_SUMMARY"
-          docker compose exec -T \
-            -e TELEGRAM_BOT_TOKEN \
-            -e TELEGRAM_CHAT_ID \
-            api sh -c 'cat > /tmp/miron-telegram-report.json && python scripts/telegram_notify.py /tmp/miron-telegram-report.json' \
-            < "reports/${PHASE}.json"
 
       - name: Dump and encrypt state
         env:
@@ -268,6 +258,39 @@ jobs:
             exit 0
           fi
           git -C "$state_worktree" commit -m "Update encrypted automation state"
+          git -C "$state_worktree" push origin HEAD:automation-state
+
+      - name: Send deduplicated Telegram notification
+        env:
+          PHASE: ${{ steps.phase.outputs.phase }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          set -euo pipefail
+          if [ "$PHASE" = "post_match" ] && ! jq -e \
+            '((.ticket_reviews // []) | length) > 0 or ((.daily_reviews // []) | length) > 0' \
+            "reports/${PHASE}.json" >/dev/null; then
+            echo "Telegram skipped: no newly settled results."
+            exit 0
+          fi
+          test -n "$TELEGRAM_BOT_TOKEN"
+          test -n "$TELEGRAM_CHAT_ID"
+          state_worktree="$RUNNER_TEMP/automation-state"
+          report_hash="$(sha256sum "reports/${PHASE}.json" | cut -d' ' -f1)"
+          marker="$state_worktree/notifications/${report_hash}.sent"
+          if [ -f "$marker" ]; then
+            echo "Telegram skipped: this exact report was already delivered."
+            exit 0
+          fi
+          docker compose exec -T \
+            -e TELEGRAM_BOT_TOKEN \
+            -e TELEGRAM_CHAT_ID \
+            api sh -c 'cat > /tmp/miron-telegram-report.json && python scripts/telegram_notify.py /tmp/miron-telegram-report.json' \
+            < "reports/${PHASE}.json"
+          mkdir -p "$state_worktree/notifications"
+          printf '%s\n' "$GITHUB_RUN_ID" > "$marker"
+          git -C "$state_worktree" add "notifications/${report_hash}.sent"
+          git -C "$state_worktree" commit -m "Record Telegram delivery"
           git -C "$state_worktree" push origin HEAD:automation-state
 
       - name: Upload encrypted cycle report

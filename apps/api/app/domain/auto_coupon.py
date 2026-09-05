@@ -62,6 +62,7 @@ class MarketQuote(BaseModel):
     decimal_odds: Decimal = Field(gt=1)
     fair_probability: Decimal = Field(gt=0, lt=1)
     bookmaker_count: int = Field(ge=1)
+    bookmaker: str | None = None
 
 
 class LeaguePolicy(BaseModel):
@@ -268,8 +269,8 @@ class CouponSelection(BaseModel):
 
     fixture: CanonicalFixture
     league: LeaguePolicy
-    analysis_run_id: UUID
-    lock_id: UUID
+    analysis_run_id: UUID | None
+    lock_id: UUID | None
     pick: Pick
     market_key: MarketKey = "h2h"
     market_label: str = "Maç sonucu"
@@ -282,6 +283,7 @@ class CouponSelection(BaseModel):
     market_fair_probability: Decimal | None = Field(default=None, gt=0, lt=1)
     edge: Decimal | None = None
     bookmaker_count: int = Field(default=0, ge=0)
+    bookmaker: str | None = None
     price_observed_at: datetime | None = None
     confidence: Decimal = Field(ge=0, le=1)
     value_score: Decimal = Field(default=Decimal("0"), ge=0, le=100)
@@ -310,7 +312,12 @@ class CouponTicket(BaseModel):
     selection_fixture_ids: tuple[UUID, ...]
     combined_probability: Decimal = Field(gt=0, lt=1)
     combined_decimal_odds: Decimal = Field(gt=1)
-    odds_source: Literal["bookmaker_average", "model_fair_odds"]
+    odds_source: Literal[
+        "bookmaker_average",
+        "bookmaker_consensus",
+        "best_bookmaker_quotes",
+        "model_fair_odds",
+    ]
     risk_label: Literal["düşük", "orta", "yüksek"]
 
 
@@ -330,6 +337,7 @@ class DailyPrediction(BaseModel):
     market_decimal_odds: Decimal | None = Field(default=None, gt=1)
     market_fair_probability: Decimal | None = Field(default=None, gt=0, lt=1)
     bookmaker_count: int = Field(ge=0)
+    bookmaker: str | None = None
     confidence: Decimal = Field(ge=0, le=1)
     score: Decimal = Field(ge=0, le=100)
     tier: Literal["journal_only", "watchlist", "coupon_candidate"]

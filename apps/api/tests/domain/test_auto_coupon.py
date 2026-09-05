@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from uuid import uuid4
 
@@ -367,10 +367,13 @@ def test_forced_daily_coupon_combines_two_banko_legs_when_strict_gate_is_empty()
 
     assert len(selections) == 2
     assert [item.kind for item in tickets] == ["double"]
-    assert tickets[0].label == "Zorunlu günlük banko ikilisi"
+    assert tickets[0].label == "Günlük piyasa ikilisi"
     assert tickets[0].combined_decimal_odds == Decimal("2.19")
     assert tickets[0].combined_probability < Decimal(".70")
-    assert "Forced mod %70 garanti iddiası değildir" in selections[0].uncertainty
+    assert selections[0].probability == first_quote.fair_probability
+    assert selections[0].analysis_run_id is None
+    assert selections[0].lock_id is None
+    assert "bağımsız model tahmini" in selections[0].uncertainty
 
 
 def test_forced_daily_coupon_avoids_tiny_h2h_favorite_when_richer_leg_exists() -> None:
@@ -460,7 +463,8 @@ def test_forced_daily_coupon_avoids_tiny_h2h_favorite_when_richer_leg_exists() -
     )
 
     assert tickets[0].combined_decimal_odds == Decimal("2.58")
-    assert [selection.pick.split(":")[0] for selection in selections] == ["spread", "totals"]
+    assert [selection.market_key for selection in selections] == ["spread", "totals"]
+    assert selections[0].pick.startswith("spread_v2:")
     assert selections[0].outcome_label == "Handikap 1 -1.5 (Barcelona)"
 
 
@@ -635,6 +639,18 @@ def test_multi_market_settlement_handles_totals_btts_and_draw_no_bet() -> None:
         AutoCouponService._settlement_status("spread:match:away:-0.5", finished, "home") == "lost"
     )
     assert (
+        AutoCouponService._settlement_status("spread_v2:match:away:1.5", finished, "home")
+        == "won"
+    )
+    assert (
+        AutoCouponService._settlement_status("totals:match:over:2.25", finished, "home")
+        == "void"
+    )
+    assert (
+        AutoCouponService._settlement_status("spread_v2:match:home:-0.25", finished, "home")
+        == "void"
+    )
+    assert (
         AutoCouponService._settlement_status("odd_even:match:odd:none", finished, "home") == "won"
     )
     assert (
@@ -698,7 +714,7 @@ def test_daily_journal_prefers_richer_settleable_market_over_plain_h2h() -> None
     assert quote.market_key == "totals"
 
 
-def test_daily_journal_can_surface_exotic_watchlist_market_without_coupon_lock() -> None:
+def test_daily_journal_prefers_measurable_market_over_unsettleable_exotic() -> None:
     now = datetime(2026, 8, 24, 9, 0, tzinfo=UTC)
     league = TOP_LEAGUES[0]
     candidate = AutoCandidate(
@@ -750,7 +766,7 @@ def test_daily_journal_can_surface_exotic_watchlist_market_without_coupon_lock()
     quote = AutoCouponService._journal_quote(candidate, market, now)
 
     assert quote is not None
-    assert quote.market_key == "corners_spread"
+    assert quote.market_key == "h2h"
     assert (
         AutoCouponService._settlement_status(
             "corners_spread:match:away:1.5",
@@ -761,6 +777,31 @@ def test_daily_journal_can_surface_exotic_watchlist_market_without_coupon_lock()
         )
         == "void"
     )
+
+
+def test_daily_journal_rejects_stale_quote_instead_of_reusing_it() -> None:
+    now = datetime(2026, 8, 24, 9, 0, tzinfo=UTC)
+    candidate = AutoCandidate(
+        fixture=fixture("epl"),
+        league=TOP_LEAGUES[0],
+        auto_score=88,
+        memory_case_count=0,
+        positive_factors=("Premier League izin listesinde",),
+        risk_flags=(),
+    )
+    stale_quote = MarketQuote(
+        provider="odds_api_io",
+        observed_at=now - timedelta(hours=7),
+        market_key="h2h",
+        market_label="Maç sonucu",
+        outcome_key="home",
+        outcome_label="Ev sahibi",
+        decimal_odds=Decimal("1.80"),
+        fair_probability=Decimal(".55"),
+        bookmaker_count=4,
+    )
+
+    assert AutoCouponService._journal_quote(candidate, market_for_quote(stale_quote), now) is None
 
 
 def test_daily_review_explains_totals_loss_with_line_and_final_goals() -> None:

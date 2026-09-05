@@ -77,15 +77,15 @@ export function AutoCouponDashboard({
 
       <section className="auto-hero" aria-labelledby="auto-title">
         <div className="online-pill">
-          <i aria-hidden="true" /> Tam otomatik · Gemini-only
+          <i aria-hidden="true" /> Tam otomatik · canlı piyasa
         </div>
         <h1 id="auto-title">
           Değeri tara.<span>Gerekirse pas geç.</span>
         </h1>
         <p>
-          Yalnızca sekiz izinli büyük ligi ve gerçek bookmaker pazarlarını
-          tarar. Her yayımlanan kupon en az %70 model olasılığı ve 1.80 canlı
-          oran eşiğini geçer; üst oran sınırı ve sabit günlük kota yoktur.
+          On büyük ligi ve güncel bookmaker pazarlarını tarar. Derin model
+          seçimi varsa %70 kapısını uygular; model kapalıysa sonucu açıkça
+          piyasa konsensüsü diye etiketler. Kupon oranı en az 1.80 olur.
         </p>
         <button
           className="auto-start"
@@ -387,9 +387,15 @@ export function AutoCouponDashboard({
                     <p>{selection.rationale.market_thesis}</p>
                   ) : null}
                   <em>Risk: {selection.uncertainty}</em>
-                  <Link href={`/runs/${selection.analysis_run_id}`}>
-                    Kilitli analizi aç ↗
-                  </Link>
+                  {selection.analysis_run_id ? (
+                    <Link href={`/runs/${selection.analysis_run_id}`}>
+                      Kilitli analizi aç ↗
+                    </Link>
+                  ) : (
+                    <small>
+                      Piyasa konsensüsü · {selection.bookmaker ?? "kaynak belirtilmedi"}
+                    </small>
+                  )}
                 </article>
               ))}
             </div>
@@ -426,9 +432,9 @@ export function AutoCouponDashboard({
                   </div>
                   <div className="ticket-metric">
                     <small>
-                      {ticket.odds_source === "bookmaker_average"
-                        ? "Piyasa oranı"
-                        : "Adil oran"}
+                      {ticket.odds_source === "model_fair_odds"
+                        ? "Adil oran"
+                        : "Alınabilir oran"}
                     </small>
                     <strong>{ticket.combined_decimal_odds}</strong>
                   </div>

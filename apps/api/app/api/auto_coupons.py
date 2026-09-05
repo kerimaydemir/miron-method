@@ -2,6 +2,7 @@ import asyncio
 import logging
 import secrets
 from datetime import datetime
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Literal
 from uuid import UUID
 from zoneinfo import ZoneInfo
@@ -42,6 +43,29 @@ def _settled_selection_ids(runs: tuple[AutoCouponRun, ...]) -> set[tuple[UUID, U
     }
 
 
+def _ticket_settlement(
+    selections: tuple[CouponSelection, ...],
+) -> tuple[str, Decimal | None]:
+    """Return the final ticket status and void-adjusted decimal price."""
+    statuses = {selection.settlement_status for selection in selections}
+    if "lost" in statuses:
+        return "lost", None
+    if "pending" in statuses:
+        return "pending", None
+    if statuses == {"void"}:
+        return "void", Decimal("1.00")
+    if statuses <= {"won", "void"} and "won" in statuses:
+        settled_odds = Decimal("1")
+        for selection in selections:
+            if selection.settlement_status != "won":
+                continue
+            if selection.market_decimal_odds is None:
+                return "pending", None
+            settled_odds *= selection.market_decimal_odds
+        return "won", settled_odds.quantize(Decimal(".01"), rounding=ROUND_HALF_UP)
+    return "pending", None
+
+
 def _daily_review_payloads(
     runs: tuple[AutoCouponRun, ...],
     *,
@@ -53,10 +77,12 @@ def _daily_review_payloads(
     ticket_reviews: list[dict[str, object]] = []
     for run in runs:
         report = run.post_match_review
-        if report is None:
-            continue
         predictions = {item.prediction_id: item for item in run.daily_predictions}
-        fresh = [item for item in report.items if item.prediction_id in newly_reviewed]
+        fresh = (
+            [item for item in report.items if item.prediction_id in newly_reviewed]
+            if report is not None
+            else []
+        )
         for review in fresh:
             prediction = predictions.get(review.prediction_id)
             if prediction is None:
@@ -90,21 +116,12 @@ def _daily_review_payloads(
                 (run.run_id, selection.fixture.id) in newly_settled for selection in selections
             ):
                 continue
-            statuses = {selection.settlement_status for selection in selections}
-            if "pending" in statuses:
-                ticket_status = "pending"
-            elif "lost" in statuses:
-                ticket_status = "lost"
-            elif statuses == {"won"}:
-                ticket_status = "won"
-            elif statuses == {"void"}:
-                ticket_status = "void"
-            else:
-                ticket_status = "pending"
+            ticket_status, settled_odds = _ticket_settlement(selections)
             ticket_reviews.append(
                 {
                     "label": ticket.label,
-                    "odds": str(ticket.combined_decimal_odds),
+                    "odds": str(settled_odds or ticket.combined_decimal_odds),
+                    "placed_odds": str(ticket.combined_decimal_odds),
                     "status": ticket_status,
                     "legs": [
                         {
@@ -114,6 +131,7 @@ def _daily_review_payloads(
                             "odds": str(selection.market_decimal_odds)
                             if selection.market_decimal_odds is not None
                             else None,
+                            "bookmaker": selection.bookmaker,
                             "status": selection.settlement_status,
                             "score": (
                                 f"{selection.final_home_score}-{selection.final_away_score}"
@@ -220,6 +238,7 @@ async def run_daily_automation(
                     "odds": str(item.market_decimal_odds)
                     if item.market_decimal_odds is not None
                     else None,
+                    "bookmaker": item.bookmaker,
                     "tier": item.tier,
                     "reasons": item.reasons,
                     "risks": item.risks,
@@ -245,6 +264,7 @@ async def run_daily_automation(
                             "odds": str(selection.market_decimal_odds)
                             if selection.market_decimal_odds is not None
                             else None,
+                            "bookmaker": selection.bookmaker,
                             "reason": selection.reason,
                         }
                         for fixture_id in ticket.selection_fixture_ids

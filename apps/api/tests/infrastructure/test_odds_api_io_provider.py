@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from uuid import uuid4
 
@@ -11,6 +11,13 @@ from app.infrastructure.odds_api_io_provider import OddsApiIoProvider
 
 @pytest.mark.asyncio
 async def test_provider_filters_top_league_and_normalizes_richer_markets() -> None:
+    observed_at = datetime.now(UTC)
+    kickoff_at = observed_at + timedelta(days=1)
+    kickoff_text = kickoff_at.isoformat().replace("+00:00", "Z")
+    fresh_update = (observed_at - timedelta(minutes=5)).isoformat().replace(
+        "+00:00", "Z"
+    )
+
     async def handler(request: httpx.Request) -> httpx.Response:
         assert request.method == "GET"
         if request.url.path.endswith("/events"):
@@ -23,7 +30,7 @@ async def test_provider_filters_top_league_and_normalizes_richer_markets() -> No
                         "id": 72221172,
                         "home": "Fulham FC",
                         "away": "Chelsea FC",
-                        "date": "2026-08-27T19:00:00Z",
+                        "date": kickoff_text,
                         "status": "pending",
                         "sport": {"name": "Football", "slug": "football"},
                         "league": {
@@ -44,7 +51,7 @@ async def test_provider_filters_top_league_and_normalizes_richer_markets() -> No
                     "id": 72221172,
                     "home": "Fulham FC",
                     "away": "Chelsea FC",
-                    "date": "2026-08-27T19:00:00Z",
+                    "date": kickoff_text,
                     "status": "pending",
                     "sport": {"name": "Football", "slug": "football"},
                     "league": {
@@ -56,94 +63,94 @@ async def test_provider_filters_top_league_and_normalizes_richer_markets() -> No
                         "Bet365": [
                             {
                                 "name": "ML",
-                                "updatedAt": "2026-08-23T23:04:00.251Z",
+                                "updatedAt": fresh_update,
                                 "odds": [{"home": "3.900", "draw": "4.000", "away": "1.833"}],
                             },
                             {
                                 "name": "Draw No Bet",
-                                "updatedAt": "2026-08-23T21:11:47.591Z",
+                                "updatedAt": fresh_update,
                                 "odds": [{"home": "3.000", "away": "1.363"}],
                             },
                             {
                                 "name": "Double Chance",
-                                "updatedAt": "2026-08-23T21:20:47.591Z",
+                                "updatedAt": fresh_update,
                                 "odds": [{"1X": "2.050", "12": "1.220", "X2": "1.280"}],
                             },
                             {
                                 "name": "Spread",
-                                "updatedAt": "2026-08-23T21:21:47.591Z",
+                                "updatedAt": fresh_update,
                                 "odds": [{"hdp": -0.5, "home": "3.900", "away": "1.260"}],
                             },
                             {
                                 "name": "Totals",
-                                "updatedAt": "2026-08-23T22:51:31.254Z",
+                                "updatedAt": fresh_update,
                                 "odds": [{"hdp": 2.5, "over": "1.650", "under": "2.200"}],
                             },
                             {
                                 "name": "Both Teams To Score",
-                                "updatedAt": "2026-08-23T23:04:00.251Z",
+                                "updatedAt": fresh_update,
                                 "odds": [{"yes": "1.615", "no": "2.200"}],
                             },
                             {
                                 "name": "Odd/Even",
-                                "updatedAt": "2026-08-23T23:04:30.251Z",
+                                "updatedAt": fresh_update,
                                 "odds": [{"odd": "1.950", "even": "1.950"}],
                             },
                             {
                                 "name": "ML HT",
-                                "updatedAt": "2026-08-23T23:05:00.251Z",
+                                "updatedAt": fresh_update,
                                 "odds": [{"home": "4.600", "draw": "2.250", "away": "2.050"}],
                             },
                             {
                                 "name": "Totals HT",
-                                "updatedAt": "2026-08-23T23:05:30.251Z",
+                                "updatedAt": fresh_update,
                                 "odds": [{"hdp": 1.5, "over": "2.200", "under": "1.650"}],
                             },
                         ],
                         "Unibet": [
                             {
                                 "name": "ML",
-                                "updatedAt": "2026-08-23T23:05:00.251Z",
+                                "updatedAt": fresh_update,
                                 "odds": [{"home": "3.700", "draw": "4.100", "away": "1.900"}],
                             },
                             {
                                 "name": "Draw No Bet",
-                                "updatedAt": "2026-08-23T21:12:47.591Z",
+                                "updatedAt": fresh_update,
                                 "odds": [{"home": "2.900", "away": "1.400"}],
                             },
                             {
                                 "name": "Double Chance",
-                                "updatedAt": "2026-08-23T21:22:47.591Z",
+                                "updatedAt": fresh_update,
                                 "odds": [{"1X": "2.000", "12": "1.250", "X2": "1.300"}],
                             },
                             {
                                 "name": "Asian Handicap",
-                                "updatedAt": "2026-08-23T21:23:47.591Z",
+                                "updatedAt": fresh_update,
                                 "odds": [{"hdp": -0.5, "home": "3.800", "away": "1.280"}],
                             },
                             {
                                 "name": "Goals Over/Under",
-                                "updatedAt": "2026-08-23T22:52:31.254Z",
+                                "updatedAt": fresh_update,
                                 "odds": [{"hdp": 2.5, "over": "1.700", "under": "2.100"}],
                             },
                             {
                                 "name": "Both Teams To Score",
-                                "updatedAt": "2026-08-23T23:05:00.251Z",
+                                "updatedAt": fresh_update,
                                 "odds": [{"yes": "1.650", "no": "2.100"}],
                             },
                             {
                                 "name": "Odd Even",
-                                "updatedAt": "2026-08-23T23:05:30.251Z",
+                                "updatedAt": fresh_update,
                                 "odds": [{"odd": "1.900", "even": "2.000"}],
                             },
                             {
                                 "name": "1st Half Moneyline",
-                                "updatedAt": "2026-08-23T23:06:00.251Z",
+                                "updatedAt": fresh_update,
                                 "odds": [{"home": "4.500", "draw": "2.300", "away": "2.000"}],
                             },
                             {
                                 "name": "1st Half Goals Over/Under",
-                                "updatedAt": "2026-08-23T23:06:30.251Z",
+                                "updatedAt": fresh_update,
                                 "odds": [{"hdp": 1.5, "over": "2.300", "under": "1.600"}],
                             },
                         ],
@@ -164,8 +171,8 @@ async def test_provider_filters_top_league_and_normalizes_richer_markets() -> No
         client=client,
     )
     items = await provider.list_market_fixtures(
-        start_utc=datetime(2026, 8, 27, tzinfo=UTC),
-        end_utc=datetime(2026, 8, 28, tzinfo=UTC),
+        start_utc=kickoff_at - timedelta(hours=1),
+        end_utc=kickoff_at + timedelta(hours=1),
     )
     assert len(items) == 1
     fixture, market = items[0]
@@ -190,11 +197,12 @@ async def test_provider_filters_top_league_and_normalizes_richer_markets() -> No
         "first_half_totals",
     }
     quotes = {(item.market_key, item.outcome_key, item.point): item for item in market.quotes}
-    assert quotes[("double_chance", "1x", None)].decimal_odds == Decimal("2.025")
+    assert quotes[("double_chance", "1x", None)].decimal_odds == Decimal("2.050")
     assert quotes[("spread", "home", Decimal("-0.5"))].market_label == "Handikap"
+    assert quotes[("spread", "away", Decimal("0.5"))].decimal_odds == Decimal("1.280")
     assert quotes[("odd_even", "even", None)].outcome_label == "Çift"
     assert quotes[("first_half_h2h", "draw", None)].market_label == "İlk yarı sonucu"
-    assert quotes[("first_half_totals", "over", Decimal("1.5"))].decimal_odds == Decimal("2.250")
+    assert quotes[("first_half_totals", "over", Decimal("1.5"))].decimal_odds == Decimal("2.300")
     assert all(item.provider == "odds_api_io" for item in market.quotes)
     await client.aclose()
 
@@ -225,8 +233,61 @@ async def test_provider_sanitizes_rate_limit_errors_without_leaking_key() -> Non
     await client.aclose()
 
 
+def test_normalizer_counts_unique_complete_fresh_bookmakers_only() -> None:
+    observed_at = datetime(2026, 9, 5, 10, 0, tzinfo=UTC)
+    kickoff_at = observed_at + timedelta(hours=5)
+    fresh = (observed_at - timedelta(minutes=2)).isoformat().replace("+00:00", "Z")
+    stale = (observed_at - timedelta(hours=7)).isoformat().replace("+00:00", "Z")
+
+    def moneyline(updated: str | None) -> list[dict[str, object]]:
+        return [
+            {
+                "name": "ML",
+                "updatedAt": updated,
+                "odds": [{"home": "2.20", "draw": "3.20", "away": "3.30"}],
+            }
+        ]
+    payload = {
+        "id": 991122,
+        "home": "Arsenal",
+        "away": "Liverpool",
+        "date": kickoff_at.isoformat().replace("+00:00", "Z"),
+        "status": "pending",
+        "sport": {"name": "Football", "slug": "football"},
+        "league": {"name": "England", "slug": "england-premier-league"},
+        "bookmakers": {
+            "Bet365": moneyline(fresh),
+            " bet365 ": moneyline(fresh),
+            "Stale Book": moneyline(stale),
+            "Missing Timestamp": moneyline(None),
+            "Incomplete": [
+                {
+                    "name": "ML",
+                    "updatedAt": fresh,
+                    "odds": [{"home": "2.10", "away": "3.40"}],
+                }
+            ],
+        },
+    }
+
+    normalized = OddsApiIoProvider._normalize_event(payload, observed_at)
+
+    assert normalized is not None
+    _, market = normalized
+    assert market.bookmaker_count == 1
+    assert all(quote.bookmaker_count == 1 for quote in market.quotes)
+    assert all(quote.bookmaker == "Bet365" for quote in market.quotes)
+
+
 @pytest.mark.asyncio
 async def test_refresh_result_uses_settled_status() -> None:
+    observed_at = datetime.now(UTC)
+    kickoff_at = observed_at + timedelta(days=1)
+    kickoff_text = kickoff_at.isoformat().replace("+00:00", "Z")
+    fresh_update = (observed_at - timedelta(minutes=5)).isoformat().replace(
+        "+00:00", "Z"
+    )
+
     async def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path.endswith("/events") and request.url.params["status"] == "pending":
             return httpx.Response(
@@ -236,7 +297,7 @@ async def test_refresh_result_uses_settled_status() -> None:
                         "id": 72478464,
                         "home": "Valencia CF",
                         "away": "Real Betis Seville",
-                        "date": "2026-08-27T19:00:00Z",
+                        "date": kickoff_text,
                         "status": "pending",
                         "sport": {"name": "Football", "slug": "football"},
                         "league": {"name": "Spain - LaLiga", "slug": "spain-laliga"},
@@ -252,7 +313,7 @@ async def test_refresh_result_uses_settled_status() -> None:
                         "id": 72478464,
                         "home": "Valencia CF",
                         "away": "Real Betis Seville",
-                        "date": "2026-08-27T19:00:00Z",
+                        "date": kickoff_text,
                         "status": "pending",
                         "sport": {"name": "Football", "slug": "football"},
                         "league": {"name": "Spain - LaLiga", "slug": "spain-laliga"},
@@ -261,7 +322,7 @@ async def test_refresh_result_uses_settled_status() -> None:
                             "Bet365": [
                                 {
                                     "name": "ML",
-                                    "updatedAt": "2026-08-26T12:00:00Z",
+                                    "updatedAt": fresh_update,
                                     "odds": [{"home": "2.1", "draw": "3.1", "away": "3.4"}],
                                 }
                             ]
@@ -278,7 +339,7 @@ async def test_refresh_result_uses_settled_status() -> None:
                     "id": 72478464,
                     "home": "Valencia CF",
                     "away": "Real Betis Seville",
-                    "date": "2026-08-27T19:00:00Z",
+                    "date": kickoff_text,
                     "status": "settled",
                     "sport": {"name": "Football", "slug": "football"},
                     "league": {"name": "Spain - LaLiga", "slug": "spain-laliga"},
@@ -299,8 +360,8 @@ async def test_refresh_result_uses_settled_status() -> None:
         client=client,
     )
     items = await provider.list_market_fixtures(
-        start_utc=datetime(2026, 8, 27, tzinfo=UTC),
-        end_utc=datetime(2026, 8, 28, tzinfo=UTC),
+        start_utc=kickoff_at - timedelta(hours=1),
+        end_utc=kickoff_at + timedelta(hours=1),
     )
 
     refreshed = await provider.refresh_result(items[0][0].id)

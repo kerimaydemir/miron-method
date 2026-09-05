@@ -107,12 +107,15 @@ async def test_espn_core_odds_provider_collects_no_key_market_quotes() -> None:
     assert market.provider == "espn_core_odds"
     assert market.bookmaker_count == 1
     assert {quote.market_key for quote in market.quotes} == {"h2h", "spread", "totals"}
+    assert all(quote.bookmaker == "DraftKings" for quote in market.quotes)
     assert market.home_decimal == Decimal("1.9")
     assert any(quote.market_key == "totals" and quote.outcome_key == "over" for quote in market.quotes)
 
 
 @pytest.mark.asyncio
 async def test_espn_refresh_result_reads_score_refs() -> None:
+    kickoff = datetime.now(UTC) + timedelta(days=1)
+
     def handler(request: httpx.Request) -> httpx.Response:
         path = request.url.path
         if path.endswith("/leagues/esp.1/events"):
@@ -131,7 +134,7 @@ async def test_espn_refresh_result_reads_score_refs() -> None:
                 200,
                 json={
                     "id": "401882917",
-                    "date": "2026-08-27T19:00Z",
+                    "date": kickoff.isoformat().replace("+00:00", "Z"),
                     "competitions": [
                         {
                             "id": "401882917",
@@ -197,8 +200,8 @@ async def test_espn_refresh_result_reads_score_refs() -> None:
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
         provider = EspnCoreOddsProvider(client=client, league_paths=("esp.1",))
         pairs = await provider.list_market_fixtures(
-            start_utc=datetime(2026, 8, 27, 15, tzinfo=UTC),
-            end_utc=datetime(2026, 8, 27, 22, tzinfo=UTC),
+            start_utc=kickoff - timedelta(hours=3),
+            end_utc=kickoff + timedelta(hours=3),
         )
         refreshed = await provider.refresh_result(pairs[0][0].id)
         snapshot = pairs[0][0].model_copy(update={"id": uuid4()})

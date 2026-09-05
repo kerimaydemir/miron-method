@@ -356,6 +356,7 @@ class EspnCoreOddsProvider:
         away_name: str,
         observed_at: datetime,
     ) -> MarketOdds | None:
+        bookmaker = str(self._nested(odds, "provider", "name") or "ESPN").strip()
         home_decimal = self._team_decimal(odds.get("homeTeamOdds"), "moneyLine")
         away_decimal = self._team_decimal(odds.get("awayTeamOdds"), "moneyLine")
         draw_decimal = self._american_to_decimal(self._nested(odds, "drawOdds", "moneyLine"))
@@ -376,6 +377,7 @@ class EspnCoreOddsProvider:
                 decimal_odds=home_decimal,
                 fair_probability=fair_home,
                 bookmaker_count=1,
+                bookmaker=bookmaker,
             ),
             MarketQuote(
                 provider=self.source_name,
@@ -388,6 +390,7 @@ class EspnCoreOddsProvider:
                 decimal_odds=draw_decimal,
                 fair_probability=fair_draw,
                 bookmaker_count=1,
+                bookmaker=bookmaker,
             ),
             MarketQuote(
                 provider=self.source_name,
@@ -400,10 +403,13 @@ class EspnCoreOddsProvider:
                 decimal_odds=away_decimal,
                 fair_probability=fair_away,
                 bookmaker_count=1,
+                bookmaker=bookmaker,
             ),
         ]
-        quotes.extend(self._spread_quotes(odds, home_name, away_name, observed_at))
-        quotes.extend(self._total_quotes(odds, observed_at))
+        quotes.extend(
+            self._spread_quotes(odds, home_name, away_name, observed_at, bookmaker)
+        )
+        quotes.extend(self._total_quotes(odds, observed_at, bookmaker))
         return MarketOdds(
             provider=self.source_name,
             event_id=event_id,
@@ -419,7 +425,12 @@ class EspnCoreOddsProvider:
         )
 
     def _spread_quotes(
-        self, odds: Mapping[str, Any], home_name: str, away_name: str, observed_at: datetime
+        self,
+        odds: Mapping[str, Any],
+        home_name: str,
+        away_name: str,
+        observed_at: datetime,
+        bookmaker: str,
     ) -> tuple[MarketQuote, ...]:
         home_decimal = self._team_decimal(odds.get("homeTeamOdds"), "spread")
         away_decimal = self._team_decimal(odds.get("awayTeamOdds"), "spread")
@@ -446,6 +457,7 @@ class EspnCoreOddsProvider:
                 decimal_odds=home_decimal,
                 fair_probability=fair_home,
                 bookmaker_count=1,
+                bookmaker=bookmaker,
             ),
             MarketQuote(
                 provider=self.source_name,
@@ -459,11 +471,12 @@ class EspnCoreOddsProvider:
                 decimal_odds=away_decimal,
                 fair_probability=fair_away,
                 bookmaker_count=1,
+                bookmaker=bookmaker,
             ),
         )
 
     def _total_quotes(
-        self, odds: Mapping[str, Any], observed_at: datetime
+        self, odds: Mapping[str, Any], observed_at: datetime, bookmaker: str
     ) -> tuple[MarketQuote, ...]:
         line = self._decimal(odds.get("overUnder"))
         over_decimal = self._american_to_decimal(odds.get("overOdds"))
@@ -483,6 +496,7 @@ class EspnCoreOddsProvider:
                 decimal_odds=over_decimal,
                 fair_probability=fair_over,
                 bookmaker_count=1,
+                bookmaker=bookmaker,
             ),
             MarketQuote(
                 provider=self.source_name,
@@ -495,6 +509,7 @@ class EspnCoreOddsProvider:
                 decimal_odds=under_decimal,
                 fair_probability=fair_under,
                 bookmaker_count=1,
+                bookmaker=bookmaker,
             ),
         )
 

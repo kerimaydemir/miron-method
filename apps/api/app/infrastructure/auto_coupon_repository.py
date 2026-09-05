@@ -12,13 +12,13 @@ from app.domain.auto_coupon import (
     MarketPerformance,
 )
 from app.domain.fixtures import CanonicalFixture
-from app.infrastructure.analysis_repository import canonical_json, sha256_text
+from app.infrastructure.analysis_repository import canonical_json
 
 
 class PendingSelection(NamedTuple):
     auto_run_id: UUID
     fixture_id: UUID
-    lock_id: UUID
+    lock_id: UUID | None
     pick: str
     fixture: CanonicalFixture | None = None
 
@@ -169,52 +169,58 @@ class PostgresAutoCouponRepository:
             )
             if not run.selections:
                 return
-            self._ensure_fixture_refs(connection, run)
-            self._ensure_forced_analysis_refs(connection, run)
-            connection.execute(
-                text("""
-                INSERT INTO coupon_selections (
-                  auto_coupon_run_id, fixture_id, analysis_run_id, prediction_lock_id,
-                  pick, probability, model_fair_odds, market_decimal_odds
-                  , market_key, market_label, outcome_label, line,
-                  market_fair_probability, edge, bookmaker_count, price_observed_at,
-                  value_score, rationale_json
-                ) VALUES (
-                  :auto_run_id, :fixture_id, :analysis_run_id, :lock_id,
-                  :pick, :probability, :model_fair_odds, :market_odds,
-                  :market_key, :market_label, :outcome_label, :line,
-                  :market_fair_probability, :edge, :bookmaker_count, :price_observed_at,
-                  :value_score, CAST(:rationale_json AS jsonb)
-                ) ON CONFLICT (auto_coupon_run_id, fixture_id) DO NOTHING
-                    """),
-                [
-                    {
-                        "auto_run_id": run.run_id,
-                        "fixture_id": item.fixture.id,
-                        "analysis_run_id": item.analysis_run_id,
-                        "lock_id": item.lock_id,
-                        "pick": item.pick,
-                        "probability": item.probability,
-                        "model_fair_odds": item.model_fair_odds,
-                        "market_odds": item.market_decimal_odds,
-                        "market_key": item.market_key,
-                        "market_label": item.market_label,
-                        "outcome_label": item.outcome_label,
-                        "line": item.line,
-                        "market_fair_probability": item.market_fair_probability,
-                        "edge": item.edge,
-                        "bookmaker_count": item.bookmaker_count,
-                        "price_observed_at": item.price_observed_at,
-                        "value_score": item.value_score,
-                        "rationale_json": canonical_json(
-                            item.rationale.model_dump(mode="json")
-                            if item.rationale is not None
-                            else {}
-                        ),
-                    }
-                    for item in run.selections
-                ],
-            )
+            self._insert_selections(connection, run)
+
+    @classmethod
+    def _insert_selections(cls, connection: Any, run: AutoCouponRun) -> None:
+        """Persist newly discovered legs even when an empty journal run is refreshed."""
+        if not run.selections:
+            return
+        cls._ensure_fixture_refs(connection, run)
+        connection.execute(
+            text("""
+            INSERT INTO coupon_selections (
+              auto_coupon_run_id, fixture_id, analysis_run_id, prediction_lock_id,
+              pick, probability, model_fair_odds, market_decimal_odds,
+              market_key, market_label, outcome_label, line,
+              market_fair_probability, edge, bookmaker_count, price_observed_at,
+              value_score, rationale_json
+            ) VALUES (
+              :auto_run_id, :fixture_id, :analysis_run_id, :lock_id,
+              :pick, :probability, :model_fair_odds, :market_odds,
+              :market_key, :market_label, :outcome_label, :line,
+              :market_fair_probability, :edge, :bookmaker_count, :price_observed_at,
+              :value_score, CAST(:rationale_json AS jsonb)
+            ) ON CONFLICT (auto_coupon_run_id, fixture_id) DO NOTHING
+            """),
+            [
+                {
+                    "auto_run_id": run.run_id,
+                    "fixture_id": item.fixture.id,
+                    "analysis_run_id": item.analysis_run_id,
+                    "lock_id": item.lock_id,
+                    "pick": item.pick,
+                    "probability": item.probability,
+                    "model_fair_odds": item.model_fair_odds,
+                    "market_odds": item.market_decimal_odds,
+                    "market_key": item.market_key,
+                    "market_label": item.market_label,
+                    "outcome_label": item.outcome_label,
+                    "line": item.line,
+                    "market_fair_probability": item.market_fair_probability,
+                    "edge": item.edge,
+                    "bookmaker_count": item.bookmaker_count,
+                    "price_observed_at": item.price_observed_at,
+                    "value_score": item.value_score,
+                    "rationale_json": canonical_json(
+                        item.rationale.model_dump(mode="json")
+                        if item.rationale is not None
+                        else {}
+                    ),
+                }
+                for item in run.selections
+            ],
+        )
 
     @staticmethod
     def _ensure_fixture_refs(connection: Any, run: AutoCouponRun) -> None:
@@ -307,113 +313,6 @@ class PostgresAutoCouponRepository:
                     "kickoff_at": item.fixture.kickoff_at,
                     "status": item.fixture.status,
                     "observed_at": item.fixture.observed_at or run.observed_at,
-                },
-            )
-
-    @staticmethod
-    def _ensure_forced_analysis_refs(connection: Any, run: AutoCouponRun) -> None:
-        config = {
-            "schema_version": "config-snapshot.v1",
-            "mode": "forced_daily_banko",
-            "model_ids": ["market-journal-forced"],
-        }
-        config_json = canonical_json(config)
-        config_sha256 = sha256_text(config_json)
-        config_snapshot_id = uuid5(NAMESPACE_URL, f"miron-baba-ai:config:{config_sha256}")
-        connection.execute(
-            text("""
-            INSERT INTO config_snapshots (id, schema_version, config_json, sha256)
-            VALUES (:id, 'config-snapshot.v1', CAST(:payload AS jsonb), :sha256)
-            ON CONFLICT DO NOTHING
-            """),
-            {"id": config_snapshot_id, "payload": config_json, "sha256": config_sha256},
-        )
-        for item in run.selections:
-            forecast_id = uuid5(
-                NAMESPACE_URL, f"miron-baba-ai:forced-forecast:{item.analysis_run_id}"
-            )
-            forecast_json = canonical_json(
-                {
-                    "fixture_id": str(item.fixture.id),
-                    "market_key": item.market_key,
-                    "pick": item.pick,
-                    "probability": str(item.probability),
-                    "market_decimal_odds": str(item.market_decimal_odds),
-                    "mode": "forced_daily_banko",
-                }
-            )
-            manifest_json = canonical_json(
-                {
-                    "analysis_run_id": str(item.analysis_run_id),
-                    "fixture_id": str(item.fixture.id),
-                    "lock_id": str(item.lock_id),
-                    "pick": item.pick,
-                    "mode": "forced_daily_banko",
-                }
-            )
-            manifest_sha256 = sha256_text(manifest_json)
-            connection.execute(
-                text("""
-                INSERT INTO analysis_runs (
-                  id, fixture_id, state, cutoff_at, kickoff_at_snapshot,
-                  config_snapshot_id, prompt_bundle_version, actual_cost_usd,
-                  correlation_id, created_at, updated_at
-                ) VALUES (
-                  :id, :fixture_id, 'LOCKED', :cutoff_at, :kickoff_at,
-                  :config_id, 'forced-daily-banko.v1', 0,
-                  :correlation_id, :created_at, :created_at
-                ) ON CONFLICT (id) DO NOTHING
-                """),
-                {
-                    "id": item.analysis_run_id,
-                    "fixture_id": item.fixture.id,
-                    "cutoff_at": run.observed_at,
-                    "kickoff_at": item.fixture.kickoff_at,
-                    "config_id": config_snapshot_id,
-                    "correlation_id": uuid5(
-                        NAMESPACE_URL,
-                        f"miron-baba-ai:forced-correlation:{run.run_id}:{item.fixture.id}",
-                    ),
-                    "created_at": run.observed_at,
-                },
-            )
-            connection.execute(
-                text("""
-                INSERT INTO forecast_versions (
-                  id, analysis_run_id, version, forecast_json, forecast_sha256
-                ) VALUES (
-                  :id, :run_id, 1, CAST(:forecast AS jsonb), :sha256
-                ) ON CONFLICT DO NOTHING
-                """),
-                {
-                    "id": forecast_id,
-                    "run_id": item.analysis_run_id,
-                    "forecast": forecast_json,
-                    "sha256": sha256_text(forecast_json),
-                },
-            )
-            connection.execute(
-                text("""
-                INSERT INTO prediction_locks (
-                  id, analysis_run_id, forecast_version_id, cutoff_at,
-                  locked_at, kickoff_at_snapshot, manifest_json,
-                  manifest_sha256, object_uri
-                ) VALUES (
-                  :id, :run_id, :forecast_id, :cutoff_at,
-                  :locked_at, :kickoff_at, CAST(:manifest AS jsonb),
-                  :sha256, :object_uri
-                ) ON CONFLICT (id) DO NOTHING
-                """),
-                {
-                    "id": item.lock_id,
-                    "run_id": item.analysis_run_id,
-                    "forecast_id": forecast_id,
-                    "cutoff_at": run.observed_at,
-                    "locked_at": run.observed_at,
-                    "kickoff_at": item.fixture.kickoff_at,
-                    "manifest": manifest_json,
-                    "sha256": manifest_sha256,
-                    "object_uri": f"forced://daily-banko/{item.lock_id}",
                 },
             )
 
@@ -537,7 +436,7 @@ class PostgresAutoCouponRepository:
                     PendingSelection(
                         auto_run_id=cast(UUID, row["auto_coupon_run_id"]),
                         fixture_id=cast(UUID, row["fixture_id"]),
-                        lock_id=cast(UUID, row["prediction_lock_id"]),
+                        lock_id=cast(UUID | None, row["prediction_lock_id"]),
                         pick=str(row["pick"]),
                         fixture=fixture,
                     )
@@ -563,6 +462,7 @@ class PostgresAutoCouponRepository:
                 SET settlement_status = :status,
                     process_verdict = CASE
                       WHEN :status = 'void' THEN 'insufficient_data'
+                      WHEN analysis_run_id IS NULL THEN 'insufficient_data'
                       WHEN :status = 'won' AND edge >= 0.02 AND bookmaker_count >= 2
                         THEN 'sound_win'
                       WHEN :status = 'won' THEN 'lucky_win'
@@ -605,7 +505,7 @@ class PostgresAutoCouponRepository:
 
     def update_run(self, run: AutoCouponRun) -> None:
         with self._engine.begin() as connection:
-            connection.execute(
+            result = connection.execute(
                 text("""
                 UPDATE auto_coupon_runs
                 SET state = :state,
@@ -622,6 +522,9 @@ class PostgresAutoCouponRepository:
                     "updated_at": datetime.now(UTC),
                 },
             )
+            if result.rowcount == 0:
+                raise KeyError("AUTO_COUPON_NOT_FOUND")
+            self._insert_selections(connection, run)
 
     def performance(self) -> AutoCouponPerformance:
         with self._engine.connect() as connection:
@@ -650,6 +553,8 @@ def _settlement_explanation(post_match: object) -> str | None:
 
 def _process_verdict(selection: object, status: str) -> str:
     if status == "void":
+        return "insufficient_data"
+    if getattr(selection, "analysis_run_id", None) is None:
         return "insufficient_data"
     edge = getattr(selection, "edge", None)
     bookmaker_count = int(getattr(selection, "bookmaker_count", 0))

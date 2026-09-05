@@ -10,8 +10,14 @@ from app.domain.fixtures import CanonicalFixture
 class CompositeDeepEvidenceProvider:
     source_name = "composite_deep_evidence"
 
-    def __init__(self, providers: Sequence[DeepEvidenceProvider]) -> None:
+    def __init__(
+        self,
+        providers: Sequence[DeepEvidenceProvider],
+        *,
+        provider_timeout_seconds: float = 120,
+    ) -> None:
         self._providers = tuple(providers)
+        self._provider_timeout_seconds = provider_timeout_seconds
 
     @property
     def available(self) -> bool:
@@ -24,7 +30,11 @@ class CompositeDeepEvidenceProvider:
             if not provider.available:
                 continue
             try:
-                collected.append(await asyncio.wait_for(provider.collect(fixture), timeout=35))
+                collected.append(
+                    await asyncio.wait_for(
+                        provider.collect(fixture), timeout=self._provider_timeout_seconds
+                    )
+                )
             except (
                 TimeoutError,
                 PermissionError,

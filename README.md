@@ -61,10 +61,11 @@ after a Gemini error. See
   health probes, and Prometheus-format route metrics
 - simplified Gemini-first interface with one primary scan action and a collapsed
   31-stage audit trail
-- separate `/auto` funnel: fixed eight-league allowlist, stale-season rejection,
+- separate `/auto` funnel: fixed ten-league allowlist, stale-season rejection,
   same-Istanbul-day scan, 10→adaptive shortlist→3 Gemini filtering, three locked
   MİRON BABA analyses, and single/double/treble tickets
-- The Odds API/API-Football bookmaker averages with proportional overround removal;
+- Odds-API.io/The Odds API/API-Football executable bookmaker prices with a
+  separately calculated, margin-removed market consensus;
   daily journal creation stays alive during quota/timeout failures and records
   fixture-only entries without inventing odds
 - automatic result settlement, post-match autopsy, and PostgreSQL full-text case-memory
@@ -74,8 +75,8 @@ after a Gemini error. See
   branch
 - private Telegram bot notification for daily coupons and next-day learning summaries
   when `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` repository secrets are configured
-- automation finalist calls fail fast enough for daily use; if deep analysis times
-  out, the system records a journal-only candidate instead of forcing a blind coupon
+- paid Gemini is disabled in unattended automation; market-only tickets carry no
+  fabricated analysis lock, model edge, or 70% guarantee
 
 Use `make quality` for the complete containerized quality gate. Operational checks
 are documented in [`docs/runbooks/local-pilot.md`](./docs/runbooks/local-pilot.md).

@@ -100,6 +100,22 @@ def test_split_message_respects_telegram_limit() -> None:
     assert all(len(chunk) <= 4096 for chunk in chunks)
 
 
+def test_post_match_without_fresh_results_does_not_build_spam_message() -> None:
+    message = build_message(
+        {
+            "phase": "post_match",
+            "day": "2026-09-05",
+            "settled_count": 0,
+            "daily_reviewed_count": 0,
+            "ticket_reviews": [],
+            "daily_reviews": [],
+            "performance": {"settled": 19, "wins": 14, "hit_rate": "0.7368"},
+        }
+    )
+
+    assert message == ""
+
+
 def test_pre_match_without_live_odds_does_not_pose_fixture_as_coupon() -> None:
     message = build_message(
         {

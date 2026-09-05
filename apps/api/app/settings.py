@@ -68,7 +68,8 @@ class Settings(BaseSettings):
     ODDS_API_IO_BOOKMAKERS: str = "Bet365,Unibet"
     ODDS_API_IO_EVENTS_PER_LEAGUE: int = Field(default=3, ge=1, le=10)
     ODDS_REFRESH_SECONDS: int = Field(default=300, ge=60, le=3_600)
-    BOOKMAKER_PROVIDER_TIMEOUT_SECONDS: int = Field(default=20, ge=3, le=60)
+    BOOKMAKER_PROVIDER_TIMEOUT_SECONDS: int = Field(default=120, ge=3, le=180)
+    DEEP_EVIDENCE_PROVIDER_TIMEOUT_SECONDS: int = Field(default=120, ge=15, le=300)
     AUTO_COUPON_WINDOW_DAYS: int = Field(default=3, ge=1, le=3)
     AUTO_COUPON_REUSE_SECONDS: int = Field(default=21_600, ge=60, le=86_400)
     AUTO_COUPON_SETTLEMENT_SECONDS: int = Field(default=300, ge=60, le=3_600)
