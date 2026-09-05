@@ -385,7 +385,7 @@ class TheOddsApiProvider:
                 fair_probability = (raw_probabilities[outcome] / overround).quantize(
                     Decimal(".000001"), rounding=ROUND_HALF_UP
                 )
-                for bookmaker, outcomes in complete_bookmakers.items():
+                for bookmaker_key, outcomes in complete_bookmakers.items():
                     normalized_quotes.append(
                         MarketQuote(
                             provider="the_odds_api",
@@ -401,7 +401,7 @@ class TheOddsApiProvider:
                             ),
                             fair_probability=fair_probability,
                             bookmaker_count=len(complete_bookmakers),
-                            bookmaker=bookmaker,
+                            bookmaker=bookmaker_key,
                         )
                     )
         league = next(item for item in TOP_LEAGUES if item.odds_sport_key == event.sport_key)
