@@ -227,6 +227,9 @@ async def run_daily_automation(
             "phase": phase,
             "day": day,
             "run_id": str(run.run_id),
+            "ai_provider": run.ai_provider,
+            "ai_status": run.ai_status,
+            "analysis_audit": run.analysis_audit,
             "daily_prediction_count": len(run.daily_predictions),
             "daily_predictions": [
                 {

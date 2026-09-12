@@ -238,6 +238,8 @@ export type AutoCouponReadiness = {
   ready: boolean;
   live_fixtures: boolean;
   live_bookmaker_odds: boolean;
+  ai_analysis: boolean;
+  analysis_provider: "none" | "google_gemini" | "nvidia_nim";
   gemini_analysis: boolean;
   deep_structured_data: boolean;
   deep_analysis_ready: boolean;

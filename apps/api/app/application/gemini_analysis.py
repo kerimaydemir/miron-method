@@ -1,10 +1,11 @@
 import asyncio
+import hashlib
 import json
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import ROUND_HALF_UP, Decimal
-from typing import Protocol
+from typing import Literal, Protocol
 
 import httpx
 from pydantic import BaseModel, ConfigDict, Field
@@ -164,6 +165,27 @@ class GeminiJsonGateway(Protocol):
     async def close(self) -> None: ...
 
 
+class _AuditedGateway:
+    def __init__(self, gateway: GeminiJsonGateway) -> None:
+        self.gateway = gateway
+        self.records: dict[int, dict[str, object]] = {}
+
+    async def generate_json(self, request: GeminiJsonRequest) -> GeminiJsonResult:
+        started_at = datetime.now(UTC)
+        result = await self.gateway.generate_json(request)
+        self.records[id(result)] = {
+            "started_at": started_at.isoformat(),
+            "completed_at": datetime.now(UTC).isoformat(),
+            "prompt_sha256": hashlib.sha256(
+                (request.system_instruction + "\n" + request.prompt).encode()
+            ).hexdigest(),
+        }
+        return result
+
+    async def close(self) -> None:
+        await self.gateway.close()
+
+
 @dataclass(frozen=True, slots=True)
 class GeminiAnalysisResult:
     forecast: FinalForecast
@@ -186,9 +208,14 @@ class GeminiAnalysisService:
         run_hard_cap_usd: Decimal,
         clock: Callable[[], datetime] | None = None,
         client: GeminiJsonGateway | None = None,
+        provider_id: str = "google_gemini",
+        analysis_provider: Literal["google_gemini", "nvidia_nim"] = "google_gemini",
+        search_grounding_enabled: bool = True,
     ) -> None:
-        if not api_key:
-            raise ValueError("GEMINI_API_KEY_MISSING")
+        if not api_key and client is None:
+            raise ValueError("MODEL_API_KEY_MISSING")
+        if analysis_provider not in {"google_gemini", "nvidia_nim"}:
+            raise ValueError("ANALYSIS_PROVIDER_UNSUPPORTED")
         self._api_key = api_key
         self._base_url = base_url
         self._models = model_registry
@@ -196,6 +223,17 @@ class GeminiAnalysisService:
         self._run_hard_cap_usd = run_hard_cap_usd
         self._clock = clock or (lambda: datetime.now(UTC))
         self._client = client
+        self._provider_id = provider_id
+        self._analysis_provider = analysis_provider
+        self._search_grounding_enabled = search_grounding_enabled
+
+    @property
+    def analysis_provider(self) -> Literal["google_gemini", "nvidia_nim"]:
+        return self._analysis_provider
+
+    async def close(self) -> None:
+        if self._client is not None:
+            await self._client.close()
 
     async def analyze(
         self,
@@ -204,15 +242,24 @@ class GeminiAnalysisService:
         cutoff_at: datetime,
         deep_evidence: DeepFootballEvidence | None = None,
     ) -> GeminiAnalysisResult:
-        self._providers.require_enabled("google_gemini", "POST")
+        self._providers.require_enabled(self._provider_id, "POST")
         routes = {
             key: self._models.assert_route_eligible(key, {"structured_output"}, self._clock())
-            for key in ("grounded_research", "normalization", "critic", "committee")
+            for key in (
+                "grounded_research",
+                "normalization",
+                "specialist",
+                "critic",
+                "committee",
+                "final_critic",
+            )
         }
+        if any(route.provider != self._provider_id for route in routes.values()):
+            raise ValueError("MODEL_PROVIDER_MISMATCH")
         self._check_preflight_budget(routes)
         evidence_packet = self._evidence_packet(fixture, factors, cutoff_at, deep_evidence)
 
-        client = self._client or GeminiClient(self._api_key, self._base_url)
+        client = _AuditedGateway(self._client or GeminiClient(self._api_key, self._base_url))
         owns_client = self._client is None
         try:
             normalization_result, research_bundle = await asyncio.gather(
@@ -228,7 +275,12 @@ class GeminiAnalysisService:
                         max_output_tokens=4_096,
                     )
                 ),
-                self._research_with_fallback(client, routes["grounded_research"], evidence_packet),
+                self._research_with_fallback(
+                    client,
+                    routes["grounded_research"],
+                    evidence_packet,
+                    enable_search=self._search_grounding_enabled,
+                ),
             )
             research_result, research_grounded = research_bundle
             normalization = self._validated_batch(normalization_result, NORMALIZATION_STAGE_IDS)
@@ -239,23 +291,24 @@ class GeminiAnalysisService:
             if not research_grounded:
                 limitations = list(research_payload.get("data_limitations", []))[:2]
                 limitations.append(
-                    "Google Search Grounding kotası kullanılamadı; yalnız sağlanan API kanıtı işlendi."
+                    "Bu analizde web araması yapılmadı; yalnız sağlanan zaman damgalı API kanıtı işlendi."
                 )
                 research_payload["data_limitations"] = limitations
-            research_payload = self._repair_research_payload(research_payload)
+            if self._provider_id == "google_gemini":
+                research_payload = self._repair_research_payload(research_payload)
             research = ResearchOutput.model_validate(research_payload)
 
             specialist_results = await asyncio.gather(
                 *(
                     client.generate_json(
                         self._stage_request(
-                            route=routes["critic"],
+                            route=routes["specialist"],
                             stage_ids=stage_ids,
                             role=role,
                             packet=self._json_packet(
                                 blind_agent=agent_name,
                                 evidence=evidence_packet,
-                                source_audit=self._report_map(normalization),
+                                source_audit=self._report_packet(normalization),
                                 current_research=research.model_dump(mode="json"),
                                 isolation_rule=(
                                     "Bu kör uzman çağrısı diğer uzmanların yorumlarını görmüyor. "
@@ -287,7 +340,7 @@ class GeminiAnalysisService:
                     ),
                     packet=self._json_packet(
                         research=research.model_dump(mode="json"),
-                        specialists=self._report_map(specialists),
+                        specialists=self._report_packet(specialists),
                     ),
                     max_output_tokens=6_144,
                 )
@@ -306,8 +359,8 @@ class GeminiAnalysisService:
                         "Bu aşamada nihai olasılık verme"
                     ),
                     packet=self._json_packet(
-                        specialists=self._report_map(specialists),
-                        critics=self._report_map(critics),
+                        specialists=self._report_packet(specialists),
+                        critics=self._report_packet(critics),
                     ),
                     max_output_tokens=6_144,
                 )
@@ -326,13 +379,17 @@ class GeminiAnalysisService:
             )
             chief = SynthesisOutput.model_validate(
                 self._repair_synthesis_payload(chief_result.output)
+                if self._provider_id == "google_gemini"
+                else chief_result.output
             )
 
             final_critic_result = await client.generate_json(
-                self._final_critic_request(routes["critic"], chief, critics, scenarios)
+                self._final_critic_request(routes["final_critic"], chief, critics, scenarios)
             )
             final_critic = FinalCriticOutput.model_validate(
                 self._repair_final_critic_payload(final_critic_result.output)
+                if self._provider_id == "google_gemini"
+                else final_critic_result.output
             )
 
             revision_result = await client.generate_json(
@@ -340,13 +397,15 @@ class GeminiAnalysisService:
             )
             revision = SynthesisOutput.model_validate(
                 self._repair_synthesis_payload(revision_result.output)
+                if self._provider_id == "google_gemini"
+                else revision_result.output
             )
         finally:
             if owns_client:
                 await client.close()
 
         specialist_routes = tuple(
-            (result, routes["critic"], stage_ids)
+            (result, routes["specialist"], stage_ids)
             for result, (_, stage_ids, _) in zip(
                 specialist_results, BLIND_SPECIALIST_GROUPS, strict=True
             )
@@ -358,7 +417,7 @@ class GeminiAnalysisService:
             (critic_result, routes["critic"], CRITIC_STAGE_IDS),
             (scenario_result, routes["committee"], SCENARIO_STAGE_IDS),
             (chief_result, routes["committee"], ("S27",)),
-            (final_critic_result, routes["critic"], ("S28",)),
+            (final_critic_result, routes["final_critic"], ("S28",)),
             (revision_result, routes["committee"], ("S29",)),
         )
         actual_cost = sum(
@@ -396,6 +455,18 @@ class GeminiAnalysisService:
                 Decimal("0.000001"), rounding=ROUND_HALF_UP
             )
             stage_costs.update(dict.fromkeys(stage_ids, each))
+            for stage_id in stage_ids:
+                stage_outputs[stage_id]["model_call"] = {
+                    **client.records.get(id(result), {}),
+                    "provider": self._provider_id,
+                    "model_id": result.model_id,
+                    "provider_request_id": result.provider_request_id,
+                    "prompt_tokens": result.prompt_token_count,
+                    "output_tokens": result.candidates_token_count,
+                    "reasoning_tokens": result.thoughts_token_count,
+                    "billing_mode": route.billing_mode,
+                    "shared_stage_ids": stage_ids,
+                }
 
         probabilities = self._normalize_probabilities(revision)
         confidence = self._bounded_decimal(revision.confidence, Decimal("0.05"), Decimal("0.95"))
@@ -424,7 +495,7 @@ class GeminiAnalysisService:
             uncertainty_drivers=tuple(revision.uncertainty_drivers),
             decisive_evidence=tuple(revision.decisive_evidence),
             dissent_summary=tuple(revision.dissent_summary),
-            analysis_provider="google_gemini",
+            analysis_provider=self._analysis_provider,
             model_ids=tuple(result.model_id for result, _, _ in result_routes),
         )
         return GeminiAnalysisResult(
@@ -439,16 +510,25 @@ class GeminiAnalysisService:
         planned = (
             ("normalization", 4_096),
             ("grounded_research", 8_192),
-            ("critic", 4_096),
-            ("critic", 4_096),
-            ("critic", 4_096),
-            ("critic", 4_096),
+            ("specialist", 4_096),
+            ("specialist", 4_096),
+            ("specialist", 4_096),
+            ("specialist", 4_096),
             ("critic", 6_144),
             ("committee", 6_144),
             ("committee", 4_096),
-            ("critic", 3_072),
+            ("final_critic", 3_072),
             ("committee", 4_096),
         )
+        call_counts: dict[str, int] = {}
+        for route_key, _ in planned:
+            call_counts[route_key] = call_counts.get(route_key, 0) + 1
+        for route_key, count in call_counts.items():
+            if count > routes[route_key].max_calls_per_run:
+                raise RuntimeError("MODEL_CALL_CAP_EXCEEDED")
+        for route_key, max_tokens in planned:
+            if max_tokens > routes[route_key].max_output_tokens:
+                raise RuntimeError("MODEL_OUTPUT_TOKEN_CAP_EXCEEDED")
         maximum = sum(
             (
                 self._max_request_cost(routes[route_key], max_tokens)
@@ -504,12 +584,12 @@ class GeminiAnalysisService:
             if len(serialized) <= 120_000:
                 if records_per_artifact == 0:
                     packet["prompt_compaction_note"] = (
-                        "Ham kayıtlar Gemini prompt sınırı için çıkarıldı; coverage, record_count "
+                        "Ham kayıtlar model prompt sınırı için çıkarıldı; coverage, record_count "
                         "ve artifact türleri korunuyor."
                     )
                 elif records_per_artifact < 2:
                     packet["prompt_compaction_note"] = (
-                        "Ham kayıtlar Gemini prompt sınırı için kısaltıldı; tam kanıt deposunda "
+                        "Ham kayıtlar model prompt sınırı için kısaltıldı; tam kanıt deposunda "
                         "saklanır."
                     )
                 return packet
@@ -539,8 +619,14 @@ class GeminiAnalysisService:
         client: GeminiJsonGateway,
         route: ModelRoute,
         evidence_packet: str,
+        *,
+        enable_search: bool,
     ) -> tuple[GeminiJsonResult, bool]:
-        request = GeminiAnalysisService._research_request(route, evidence_packet)
+        request = GeminiAnalysisService._research_request(
+            route, evidence_packet, enable_search=enable_search
+        )
+        if not enable_search:
+            return await client.generate_json(request), False
         try:
             return await client.generate_json(request), True
         except httpx.HTTPStatusError as error:
@@ -554,7 +640,7 @@ class GeminiAnalysisService:
             update={
                 "enable_google_search": False,
                 "prompt": (
-                    "Google Search Grounding kotası kullanılamıyor. Web araştırması yapılmış "
+                    "Web arama özelliği kullanılamıyor. Web araştırması yapılmış "
                     "gibi davranma; citations alanını boş bırak ve yalnız verilen API kanıtını "
                     f"özetle.\n{request.prompt}"
                 ),
@@ -563,13 +649,23 @@ class GeminiAnalysisService:
         return await client.generate_json(fallback), False
 
     @staticmethod
-    def _research_request(route: ModelRoute, evidence_packet: str) -> GeminiJsonRequest:
+    def _research_request(
+        route: ModelRoute, evidence_packet: str, *, enable_search: bool
+    ) -> GeminiJsonRequest:
+        source_rule = (
+            "Google Search ile yalnızca maçtan önce yayımlanmış resmî kulüp/lig "
+            "açıklamalarını ve güvenilir haber kaynaklarını ara."
+            if enable_search
+            else (
+                "Web araması yapma; yalnız sağlanan zaman damgalı API kanıtını kullan ve "
+                "citations alanını boş bırak."
+            )
+        )
         return GeminiJsonRequest(
             model_id=route.model_id,
             system_instruction=(
-                "Sen kanıt odaklı futbol araştırmacısısın. Google Search ile yalnızca maçtan "
-                "önce yayımlanmış resmî kulüp/lig açıklamalarını ve güvenilir haber kaynaklarını "
-                "ara. İki takımın haberlerini, teknik direktör açıklamalarını, sakat/cezalıları, "
+                f"Sen kanıt odaklı futbol araştırmacısısın. {source_rule} "
+                "İki takımın haberlerini, teknik direktör açıklamalarını, sakat/cezalıları, "
                 "rotasyon ihtimalini, muhtemel ilk 11'leri ve ilgili oyuncuları tek tek incele. "
                 "Bir oyuncunun durumu veya ilk 11'i kaynakla doğrulanamıyorsa açıkça bilinmiyor "
                 "de. Haber başlığına dayanarak içerik uydurma. Türkçe yaz."
@@ -584,7 +680,7 @@ class GeminiAnalysisService:
             response_schema=ResearchOutput.model_json_schema(),
             max_output_tokens=8_192,
             thinking_level="medium",
-            enable_google_search=True,
+            enable_google_search=enable_search,
         )
 
     @staticmethod
@@ -629,9 +725,9 @@ class GeminiAnalysisService:
         packet = GeminiAnalysisService._json_packet(
             fixture=fixture.model_dump(mode="json"),
             research=research.model_dump(mode="json"),
-            specialists=GeminiAnalysisService._report_map(specialists),
-            critics=GeminiAnalysisService._report_map(critics),
-            scenarios=GeminiAnalysisService._report_map(scenarios),
+            specialists=GeminiAnalysisService._report_packet(specialists),
+            critics=GeminiAnalysisService._report_packet(critics),
+            scenarios=GeminiAnalysisService._report_packet(scenarios),
         )
         return GeminiJsonRequest(
             model_id=route.model_id,
@@ -659,8 +755,8 @@ class GeminiAnalysisService:
     ) -> GeminiJsonRequest:
         packet = GeminiAnalysisService._json_packet(
             chief=chief.model_dump(mode="json"),
-            prior_critics=GeminiAnalysisService._report_map(critics),
-            scenarios=GeminiAnalysisService._report_map(scenarios),
+            prior_critics=GeminiAnalysisService._report_packet(critics),
+            scenarios=GeminiAnalysisService._report_packet(scenarios),
         )
         return GeminiJsonRequest(
             model_id=route.model_id,
@@ -703,6 +799,9 @@ class GeminiAnalysisService:
         result: GeminiJsonResult, expected_stage_ids: tuple[str, ...]
     ) -> StageBatchOutput:
         batch = StageBatchOutput.model_validate(result.output)
+        actual = [report.stage_id for report in batch.reports]
+        if len(actual) != len(expected_stage_ids) or set(actual) != set(expected_stage_ids):
+            raise ValueError("MODEL_STAGE_COVERAGE_INVALID")
         by_stage: dict[str, StageReport] = {}
         for report in batch.reports:
             if report.stage_id in expected_stage_ids and report.stage_id not in by_stage:
@@ -887,6 +986,10 @@ class GeminiAnalysisService:
         return {report.stage_id: report.summary for report in batch.reports}
 
     @staticmethod
+    def _report_packet(batch: StageBatchOutput) -> dict[str, dict[str, object]]:
+        return {report.stage_id: report.model_dump(mode="json") for report in batch.reports}
+
+    @staticmethod
     def _json_packet(**items: object) -> str:
         return json.dumps(items, ensure_ascii=False, sort_keys=True)
 
@@ -914,6 +1017,11 @@ class GeminiAnalysisService:
     def _normalize_probabilities(
         synthesis: SynthesisOutput,
     ) -> tuple[Decimal, Decimal, Decimal]:
+        total_probability = (
+            synthesis.home_probability + synthesis.draw_probability + synthesis.away_probability
+        )
+        if abs(total_probability - 1) > 0.02:
+            raise ValueError("MODEL_PROBABILITY_SUM_INVALID")
         raw = tuple(
             max(Decimal("0.000001"), Decimal(str(value)))
             for value in (

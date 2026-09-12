@@ -10,7 +10,11 @@ from pydantic import BaseModel, ConfigDict, Field
 class GeminiJsonRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    model_id: str = Field(pattern=r"^gemini-")
+    model_id: str = Field(
+        min_length=1,
+        max_length=200,
+        pattern=r"^(?:gemini-[A-Za-z0-9._-]+|[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._:/-]*)$",
+    )
     system_instruction: str = Field(min_length=1, max_length=20_000)
     prompt: str = Field(min_length=1, max_length=200_000)
     response_schema: dict[str, Any]

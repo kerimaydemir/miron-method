@@ -95,6 +95,7 @@ def test_free_mode_readiness_does_not_require_paid_gemini() -> None:
         supported_market_keys = ("h2h", "totals")
 
     class _FreeModeAnalysis:
+        analyzer = None
         deep_data_ready = True
         deep_analysis_ready = False
         implemented_stage_ids = ()
@@ -110,8 +111,40 @@ def test_free_mode_readiness_does_not_require_paid_gemini() -> None:
 
     assert readiness.ready is True
     assert readiness.gemini_analysis is False
+    assert readiness.ai_analysis is False
+    assert readiness.analysis_provider == "none"
     assert readiness.blockers == ()
-    assert "ücretsiz maliyet korumalı mod" in readiness.notice
+    assert "maliyet korumalı mod" in readiness.notice
+
+
+def test_nvidia_readiness_names_actual_provider_and_requires_complete_evidence() -> None:
+    class _ReadyOdds:
+        available = True
+        supported_market_keys = ("h2h", "totals")
+
+    class _NvidiaAnalyzer:
+        analysis_provider = "nvidia_nim"
+
+    class _NvidiaAnalysis:
+        analyzer = _NvidiaAnalyzer()
+        deep_data_ready = False
+        deep_analysis_ready = True
+        implemented_stage_ids = ("S00", "S01")
+        required_deep_stage_ids = ("S00", "S01")
+
+    service = AutoCouponService.__new__(AutoCouponService)
+    service._odds = _ReadyOdds()
+    service._analysis = _NvidiaAnalysis()
+    service._funnel = object()
+    service._live_fixtures_available = True
+
+    readiness = service.readiness()
+
+    assert readiness.ready is False
+    assert readiness.ai_analysis is True
+    assert readiness.gemini_analysis is False
+    assert readiness.analysis_provider == "nvidia_nim"
+    assert readiness.blockers == ("AUTO_COUPON_DEEP_DATA_REQUIRED",)
 
 
 def test_selection_label_uses_turkish_coupon_style_for_h2h() -> None:

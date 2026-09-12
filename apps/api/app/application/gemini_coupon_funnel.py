@@ -5,6 +5,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.application.gemini_analysis import GeminiJsonGateway
 from app.domain.auto_coupon import AutoCandidate, FunnelDecision, MarketQuote
 from app.domain.registries import ModelRegistry, ModelRoute, ProviderRegistry
 from app.infrastructure.gemini_client import GeminiClient, GeminiJsonRequest, GeminiJsonResult
@@ -25,11 +26,17 @@ class GeminiCouponFunnel:
         base_url: str,
         model_registry: ModelRegistry,
         provider_registry: ProviderRegistry,
+        provider_id: str = "google_gemini",
+        client: GeminiJsonGateway | None = None,
     ) -> None:
+        if not api_key and client is None:
+            raise ValueError("MODEL_API_KEY_MISSING")
         self._api_key = api_key
         self._base_url = base_url
         self._models = model_registry
         self._providers = provider_registry
+        self._provider_id = provider_id
+        self._client = client
 
     async def select(
         self,
@@ -38,14 +45,17 @@ class GeminiCouponFunnel:
     ) -> tuple[FunnelDecision, FunnelDecision, Decimal]:
         if not candidates:
             raise ValueError("AUTO_COUPON_NO_CANDIDATES")
-        self._providers.require_enabled("google_gemini", "POST")
+        self._providers.require_enabled(self._provider_id, "POST")
         rough_route = self._models.assert_route_eligible(
             "normalization", {"structured_output"}, datetime.now(UTC)
         )
         critic_route = self._models.assert_route_eligible(
             "critic", {"structured_output"}, datetime.now(UTC)
         )
-        client = GeminiClient(self._api_key, self._base_url)
+        if rough_route.provider != self._provider_id or critic_route.provider != self._provider_id:
+            raise ValueError("MODEL_PROVIDER_MISMATCH")
+        client = self._client or GeminiClient(self._api_key, self._base_url)
+        owns_client = self._client is None
         try:
             rough_result = await client.generate_json(
                 self._request(
@@ -97,7 +107,8 @@ class GeminiCouponFunnel:
                 )
                 critic_ids = ()
         finally:
-            await client.close()
+            if owns_client:
+                await client.close()
 
         initial_ids = tuple(item.fixture.id for item in candidates)
         rough = FunnelDecision(
@@ -120,6 +131,10 @@ class GeminiCouponFunnel:
         if critic_result is not None:
             cost += self._cost(critic_route, critic_result)
         return rough, critic, cost.quantize(Decimal(".000001"), rounding=ROUND_HALF_UP)
+
+    async def close(self) -> None:
+        if self._client is not None:
+            await self._client.close()
 
     @staticmethod
     def _request(

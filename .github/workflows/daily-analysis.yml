@@ -24,7 +24,7 @@ concurrency:
 jobs:
   cycle:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     env:
       DATA_ENCRYPTION_KEY: ${{ secrets.DATA_ENCRYPTION_KEY }}
     steps:
@@ -52,6 +52,8 @@ jobs:
 
       - name: Create runtime env
         env:
+          PHASE: ${{ steps.phase.outputs.phase }}
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
           THE_ODDS_API_KEY: ${{ secrets.THE_ODDS_API_KEY }}
           ODDS_API_IO_KEY: ${{ secrets.ODDS_API_IO_KEY }}
           API_FOOTBALL_API_KEY: ${{ secrets.API_FOOTBALL_API_KEY }}
@@ -63,6 +65,16 @@ jobs:
           test -n "$API_FOOTBALL_API_KEY"
           test -n "$AUTOMATION_TOKEN"
           test -n "$DATA_ENCRYPTION_KEY"
+          ai_provider=disabled
+          nvidia_enabled=false
+          if [ "$PHASE" = "pre_match" ]; then
+            test -n "$NVIDIA_API_KEY"
+            ai_provider=nvidia_nim
+            nvidia_enabled=true
+          else
+            NVIDIA_API_KEY=
+          fi
+          umask 077
           cat > .env <<EOF
           COMPOSE_PROJECT_NAME=miron-baba-ai
           PRODUCT_NAME=MİRON BABA AI
@@ -91,6 +103,13 @@ jobs:
           GEMINI_API_BASE_URL=https://generativelanguage.googleapis.com/v1beta
           GEMINI_ENABLED=false
           GEMINI_ANALYSIS_TIMEOUT_SECONDS=600
+          AI_PROVIDER=${ai_provider}
+          NVIDIA_API_KEY=${NVIDIA_API_KEY}
+          NVIDIA_API_BASE_URL=https://integrate.api.nvidia.com/v1
+          NVIDIA_ENABLED=${nvidia_enabled}
+          NVIDIA_MAX_CONCURRENCY=2
+          AI_ANALYSIS_TIMEOUT_SECONDS=600
+          AI_FUNNEL_TIMEOUT_SECONDS=120
           LIVE_FIXTURES_ENABLED=true
           OPENLIGADB_BASE_URL=https://api.openligadb.de
           OPENLIGADB_LEAGUES=pl1,la1,bl1,it1,fr1,nl1,pt1,tr1
@@ -109,9 +128,10 @@ jobs:
           AUTO_COUPON_REUSE_SECONDS=60
           AUTO_COUPON_SETTLEMENT_SECONDS=300
           AUTO_COUPON_BACKGROUND_SETTLEMENT_ENABLED=false
-          AUTO_COUPON_FINALIST_ANALYSIS_TIMEOUT_SECONDS=180
-          AUTO_COUPON_REQUEST_TIMEOUT_SECONDS=900
-          AUTO_COUPON_FORCE_DAILY_TICKET=true
+          AUTO_COUPON_FINALIST_ANALYSIS_TIMEOUT_SECONDS=600
+          AUTO_COUPON_MAX_AI_FINALISTS=2
+          AUTO_COUPON_REQUEST_TIMEOUT_SECONDS=1800
+          AUTO_COUPON_FORCE_DAILY_TICKET=false
           AUTO_COUPON_FORCED_MIN_COMBINED_ODDS=1.80
           AUTO_COUPON_FORCED_MAX_COMBINED_ODDS=2.60
           AUTOMATION_TOKEN=${AUTOMATION_TOKEN}
@@ -138,6 +158,25 @@ jobs:
           EOF
           sed -i 's/^          //' .env
           chmod 600 .env
+
+      - name: Build automation image
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            if docker compose build api; then
+              exit 0
+            fi
+            if [ "$attempt" = "3" ]; then
+              exit 1
+            fi
+            echo "Container registry temporarily unavailable; retrying in $((attempt * 20)) seconds."
+            sleep $((attempt * 20))
+          done
+
+      - name: Verify live NVIDIA structured output
+        if: steps.phase.outputs.phase == 'pre_match'
+        timeout-minutes: 8
+        run: docker compose run --rm --no-deps -e PYTHONPATH=/workspace/apps/api api python scripts/nvidia_probe.py
 
       - name: Restore encrypted database state
         run: |
@@ -176,7 +215,7 @@ jobs:
         run: |
           set -euo pipefail
           for attempt in 1 2 3; do
-            if docker compose up -d --build api worker; then
+            if docker compose up -d --no-build api worker; then
               break
             fi
             if [ "$attempt" = "3" ]; then
@@ -202,10 +241,18 @@ jobs:
           set -euo pipefail
           mkdir -p reports
           curl --fail-with-body --silent --show-error \
-            --retry 3 --retry-all-errors --max-time 1800 \
+            --connect-timeout 10 --max-time 1860 \
             -X POST "http://localhost:8000/api/v1/auto-coupons/automation/daily?phase=${PHASE}" \
             -H "Authorization: Bearer ${AUTOMATION_TOKEN}" \
             -o "reports/${PHASE}.json"
+          curl --fail --silent --show-error --max-time 120 \
+            http://localhost:8000/api/v1/auto-coupons/journal?limit=90 -o reports/journal.json
+          curl --fail --silent --show-error --max-time 120 \
+            http://localhost:8000/api/v1/auto-coupons/performance -o reports/performance.json
+          jq --slurpfile journal reports/journal.json --slurpfile performance reports/performance.json \
+            '. + {journal: $journal[0], performance: $performance[0]}' \
+            "reports/${PHASE}.json" > reports/complete.json
+          mv reports/complete.json "reports/${PHASE}.json"
           {
             echo "### MIRON BABA ${PHASE}"
             jq -r '"phase=\(.phase) day=\(.day) daily_predictions=\(.daily_prediction_count // 0) selections=\(.selection_count // 0) tickets=\(.ticket_count // 0) settled=\(.settled_count // 0) daily_reviewed=\(.daily_reviewed_count // 0) notice=\(.notice // "ok")"' "reports/${PHASE}.json"

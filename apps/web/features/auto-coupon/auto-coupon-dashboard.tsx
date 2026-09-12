@@ -48,6 +48,15 @@ export function AutoCouponDashboard({
   const auto = useAutoCoupon(initialRunId);
   const data = auto.data ?? (!initialRunId ? auto.journal?.[0] : undefined);
   const readiness = auto.readiness;
+  const modelStatus = readiness?.ai_analysis
+    ? readiness.analysis_provider === "nvidia_nim"
+      ? "NVIDIA NIM yapılandırıldı"
+      : readiness.analysis_provider === "google_gemini"
+        ? "Google Gemini yapılandırıldı"
+        : "Model sağlayıcısı bildirilmedi"
+    : readiness
+      ? "Model kapalı · piyasa konsensüsü"
+      : "Bağlantılar kontrol ediliyor";
   const errorMessage = auto.error?.message ?? "UNKNOWN_AUTO_COUPON_ERROR";
   const pathname = usePathname();
   const router = useRouter();
@@ -77,15 +86,16 @@ export function AutoCouponDashboard({
 
       <section className="auto-hero" aria-labelledby="auto-title">
         <div className="online-pill">
-          <i aria-hidden="true" /> Tam otomatik · canlı piyasa
+          <i aria-hidden="true" /> {modelStatus}
         </div>
         <h1 id="auto-title">
           Değeri tara.<span>Gerekirse pas geç.</span>
         </h1>
         <p>
           On büyük ligi ve güncel bookmaker pazarlarını tarar. Derin model
-          seçimi varsa %70 kapısını uygular; model kapalıysa sonucu açıkça
-          piyasa konsensüsü diye etiketler. Kupon oranı en az 1.80 olur.
+          seçimi varsa %70 tahmin eşiğini uygular; model kapalıysa sonucu
+          piyasa konsensüsü diye etiketler. Bu yüzdeler doğrulanmış başarı oranı
+          değildir. Kupon oranı en az 1.80 olur.
         </p>
         <button
           className="auto-start"
@@ -178,7 +188,7 @@ export function AutoCouponDashboard({
           </div>
           <div>
             <strong>02</strong>
-            <span>Ucuz Gemini ile kaba eleme</span>
+            <span>Veri ve fiyatla ilk eleme</span>
           </div>
           <div>
             <strong>03</strong>
@@ -186,7 +196,7 @@ export function AutoCouponDashboard({
           </div>
           <div>
             <strong>04</strong>
-            <span>Çoklu Gemini kurulu ve kilit</span>
+            <span>Kanıt değerlendirmesi ve kayıt</span>
           </div>
         </section>
       ) : null}
@@ -200,7 +210,7 @@ export function AutoCouponDashboard({
               : errorMessage.includes("DEEP_ANALYSIS_NOT_READY")
                 ? "Kadro, form, istatistik, taktik, yorgunluk ve piyasa eleştirisi aşamaları tamamlanmadan kupon üretilmez."
                 : errorMessage.includes("DEEP_DATA_REQUIRED")
-                  ? "API-Football derin veri bağlantısı olmadan kupon üretilmez."
+                  ? "Yeterli derin futbol verisi olmadan model kuponu üretilmez."
                   : errorMessage.includes("NOT_ENOUGH")
                     ? "Şu an izinli büyük liglerde en az üç güncel maç yok. Eski veya alt lig maçı eklenmedi."
                     : `Hata: ${errorMessage}`}
@@ -325,7 +335,7 @@ export function AutoCouponDashboard({
             </div>
             <b>→</b>
             <div className="final">
-              <small>Kilitli seçim</small>
+              <small>Son seçim</small>
               <strong>{data.selections.length}</strong>
               <span>MİRON BABA</span>
             </div>
@@ -341,7 +351,7 @@ export function AutoCouponDashboard({
               </div>
               <span>
                 {data.source_mode === "bookmaker_live"
-                  ? "Canlı bookmaker ortalaması"
+                  ? "Kayıtlı bookmaker fiyatları"
                   : "Geçersiz eski çalışma"}
               </span>
             </div>
@@ -428,7 +438,7 @@ export function AutoCouponDashboard({
                     <small>
                       {ticket.probability_source === "bookmaker_consensus"
                         ? "Piyasa konsensüsü"
-                        : "Model ihtimali"}
+                        : "Model tahmini · ön değerlendirme"}
                     </small>
                     <strong>
                       %{Math.round(Number(ticket.combined_probability) * 100)}
@@ -451,7 +461,7 @@ export function AutoCouponDashboard({
             <summary>
               <span>
                 <strong>Eleme gerekçelerini gör</strong>
-                <small>İki Gemini kurulunun kısa kararı</small>
+                <small>İlk eleme ve eleştirmen kararı</small>
               </span>
               <span aria-hidden="true">+</span>
             </summary>

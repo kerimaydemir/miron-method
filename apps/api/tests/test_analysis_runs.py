@@ -81,7 +81,7 @@ async def test_analysis_times_out_instead_of_hanging_forever() -> None:
         analysis_timeout_seconds=0.01,  # type: ignore[arg-type]
     )
 
-    with pytest.raises(RuntimeError, match="GEMINI_ANALYSIS_TIMED_OUT"):
+    with pytest.raises(RuntimeError, match="AI_ANALYSIS_TIMED_OUT"):
         await run_service.start(
             FIXTURES[2].id,
             "analysis-timeout",

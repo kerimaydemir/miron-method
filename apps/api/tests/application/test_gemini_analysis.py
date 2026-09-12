@@ -1,3 +1,4 @@
+import json
 import re
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -7,6 +8,7 @@ import pytest
 
 from app.application.gemini_analysis import GeminiAnalysisService
 from app.domain.deep_evidence import DeepFootballEvidence, EvidenceArtifact
+from app.domain.registries import ModelRegistry
 from app.infrastructure.config_loader import load_model_registry, load_provider_registry
 from app.infrastructure.gemini_client import GeminiJsonRequest, GeminiJsonResult
 from app.infrastructure.mock_fixture_provider import FEATURES, FIXTURES
@@ -15,9 +17,11 @@ from app.infrastructure.mock_fixture_provider import FEATURES, FIXTURES
 class FakeGeminiClient:
     def __init__(self) -> None:
         self.model_ids: list[str] = []
+        self.requests: list[GeminiJsonRequest] = []
 
     async def generate_json(self, request: GeminiJsonRequest) -> GeminiJsonResult:
         self.model_ids.append(request.model_id)
+        self.requests.append(request)
         properties = request.response_schema.get("properties", {})
         if "reports" in properties:
             stage_clause = re.search(
@@ -30,6 +34,9 @@ class FakeGeminiClient:
                     {
                         "stage_id": stage_id,
                         "summary": f"{stage_id} kanıtları eksikler belirtilerek denetlendi.",
+                        "findings": ["Sağlanan kanıt paketindeki kapsam sinyali değerlendirildi."],
+                        "evidence_refs": ["triage_signals"],
+                        "unknowns": ["Doğrulanmış ilk 11 sağlanmadı."],
                     }
                     for stage_id in stage_ids
                 ]
@@ -40,6 +47,7 @@ class FakeGeminiClient:
                 "decisive_evidence": ["Kapsama yüksek", "Güncellik sinyali güçlü"],
                 "counter_evidence": ["Kadro belirsizliği sürüyor"],
                 "data_limitations": ["Dış dünya takım verisi kullanılmadı"],
+                "citations": ["https://invented.invalid/not-provider-grounded"],
             }
         elif "requested_adjustments" in properties:
             output = {
@@ -89,7 +97,7 @@ class FakeGeminiClient:
 
 
 @pytest.mark.asyncio
-async def test_three_gemini_models_fill_all_deep_stages_with_valid_costs() -> None:
+async def test_three_nvidia_models_fill_all_deep_stages_with_trial_costs() -> None:
     client = FakeGeminiClient()
     service = GeminiAnalysisService(
         api_key="test-key",
@@ -97,28 +105,82 @@ async def test_three_gemini_models_fill_all_deep_stages_with_valid_costs() -> No
         model_registry=load_model_registry(Path("/workspace/config/models.yaml")),
         provider_registry=load_provider_registry(Path("/workspace/config/providers.yaml")),
         run_hard_cap_usd=Decimal("2"),
-        clock=lambda: datetime(2026, 8, 22, tzinfo=UTC),
+        clock=lambda: datetime(2026, 9, 7, tzinfo=UTC),
         client=client,
+        provider_id="nvidia_nim",
+        analysis_provider="nvidia_nim",
+        search_grounding_enabled=False,
     )
 
     result = await service.analyze(FIXTURES[0], FEATURES[0], datetime(2026, 8, 22, 8, tzinfo=UTC))
 
     assert set(client.model_ids) == {
-        "gemini-3.5-flash-lite",
-        "gemini-3.6-flash",
-        "gemini-3.5-flash",
+        "nvidia/nemotron-3.5-lightning-30b-a3b",
+        "nvidia/nemotron-3-super-120b-a12b",
+        "nvidia/nemotron-3-ultra-550b-a55b",
     }
     assert len(client.model_ids) == 11
-    assert result.forecast.analysis_provider == "google_gemini"
+    assert result.forecast.analysis_provider == "nvidia_nim"
     assert len(result.forecast.market_probabilities) == 2
     assert result.forecast.market_probabilities[0].market_key == "totals"
     assert len(result.forecast.model_ids) == 11
     assert sum(item.probability for item in result.forecast.outcome_probabilities) == Decimal("1")
-    assert result.actual_cost_usd > 0
-    assert result.actual_cost_usd <= Decimal("2")
+    assert result.actual_cost_usd == Decimal("0")
     assert set(result.stage_costs) == {f"S{stage:02d}" for stage in range(1, 30)}
     assert set(result.stage_summaries) == {f"S{stage:02d}" for stage in range(1, 30)}
     assert "sentezlendi" in result.stage_summaries["S29"]
+    assert not any(request.enable_google_search for request in client.requests)
+    assert result.stage_outputs["S01"]["citations"] == []
+    limitations = result.stage_outputs["S01"]["data_limitations"]
+    assert "sağlanan" in str(limitations).casefold()
+    assert "kotası kullanılamadı" not in str(limitations)
+    assert "invented.invalid" not in json.dumps(result.stage_outputs)
+
+    specialist_requests = [
+        request for request in client.requests if '"blind_agent":' in request.prompt
+    ]
+    assert len(specialist_requests) == 4
+    for request in specialist_requests:
+        packet = json.loads(request.prompt.split("Kanıt paketi:\n", maxsplit=1)[1])
+        assert "source_audit" in packet
+        assert "current_research" in packet
+        assert "specialists" not in packet
+        assert "critics" not in packet
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("violation", ["provider", "calls", "output_tokens"])
+async def test_model_policy_failure_happens_before_any_remote_call(violation: str) -> None:
+    registry = load_model_registry(Path("/workspace/config/models.yaml"))
+    routes = dict(registry.routes)
+    if violation == "provider":
+        routes["critic"] = routes["critic"].model_copy(update={"provider": "google_gemini"})
+        expected_error = "MODEL_PROVIDER_MISMATCH"
+    elif violation == "calls":
+        routes["specialist"] = routes["specialist"].model_copy(update={"max_calls_per_run": 3})
+        expected_error = "MODEL_CALL_CAP_EXCEEDED"
+    else:
+        routes["committee"] = routes["committee"].model_copy(update={"max_output_tokens": 4_096})
+        expected_error = "MODEL_OUTPUT_TOKEN_CAP_EXCEEDED"
+    constrained = ModelRegistry.model_validate({**registry.model_dump(), "routes": routes})
+    client = FakeGeminiClient()
+    service = GeminiAnalysisService(
+        api_key="test-key",
+        base_url="https://example.invalid/v1",
+        model_registry=constrained,
+        provider_registry=load_provider_registry(Path("/workspace/config/providers.yaml")),
+        run_hard_cap_usd=Decimal("2"),
+        clock=lambda: datetime(2026, 9, 7, tzinfo=UTC),
+        client=client,
+        provider_id="nvidia_nim",
+        analysis_provider="nvidia_nim",
+        search_grounding_enabled=False,
+    )
+
+    with pytest.raises((ValueError, RuntimeError), match=expected_error):
+        await service.analyze(FIXTURES[0], FEATURES[0], datetime(2026, 9, 7, tzinfo=UTC))
+
+    assert client.requests == []
 
 
 def test_deep_evidence_packet_is_compacted_for_gemini_prompt_limit() -> None:

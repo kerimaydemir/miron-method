@@ -150,7 +150,9 @@ class AutoCouponService:
         live_fixtures_available: bool,
         window_days: int,
         reuse_seconds: int,
+        funnel_timeout_seconds: int = 120,
         finalist_analysis_timeout_seconds: int = 240,
+        max_ai_finalists: int = 2,
         force_daily_ticket: bool = True,
         forced_min_combined_odds: Decimal = Decimal("1.80"),
         forced_max_combined_odds: Decimal = Decimal("2.60"),
@@ -166,7 +168,9 @@ class AutoCouponService:
         self._live_fixtures_available = live_fixtures_available
         self._window_days = window_days
         self._reuse_interval = timedelta(seconds=reuse_seconds)
+        self._funnel_timeout_seconds = funnel_timeout_seconds
         self._finalist_analysis_timeout_seconds = finalist_analysis_timeout_seconds
+        self._max_ai_finalists = max_ai_finalists
         self._force_daily_ticket = force_daily_ticket
         self._forced_min_combined_odds = forced_min_combined_odds
         self._forced_max_combined_odds = forced_max_combined_odds
@@ -230,21 +234,25 @@ class AutoCouponService:
         if not initial:
             raise ValueError("AUTO_COUPON_NO_CURRENT_TOP_LEAGUE_FIXTURES")
         daily_predictions = self._daily_predictions(run_id, initial, markets, now)
+        funnel_failed = False
         if markets and self._funnel is not None:
             try:
                 rough, critic, funnel_cost = await asyncio.wait_for(
-                    self._funnel.select(initial, memory_context), timeout=45
+                    self._funnel.select(initial, memory_context),
+                    timeout=self._funnel_timeout_seconds,
                 )
-            except (TimeoutError, httpx.HTTPError):
+            except (TimeoutError, PermissionError, RuntimeError, ValueError, httpx.HTTPError):
+                funnel_failed = True
                 rough, critic = self._empty_funnel_after_journal(
                     initial,
-                    "Gemini eleme çağrısı zamanında tamamlanmadı; günlük jurnal kaydedildi, kupon üretilmedi.",
+                    "AI eleme çağrısı doğrulanamadı; günlük jurnal kaydedildi ve model "
+                    "olasılığı üretilmedi.",
                 )
                 funnel_cost = Decimal("0")
         elif markets:
             rough, critic = self._empty_funnel_after_journal(
                 initial,
-                "Gemini kapalı; bağımsız model analizi yapılmadı. Yalnız canlı piyasa "
+                "AI rotası kapalı; bağımsız model analizi yapılmadı. Yalnız canlı piyasa "
                 "konsensüsü jurnale alındı.",
             )
             funnel_cost = Decimal("0")
@@ -256,12 +264,18 @@ class AutoCouponService:
             funnel_cost = Decimal("0")
 
         by_id = {item.fixture.id: item for item in initial}
-        if markets and self._funnel is not None and not critic.selected_fixture_ids:
+        if (
+            markets
+            and self._funnel is not None
+            and not funnel_failed
+            and not critic.selected_fixture_ids
+        ):
             rough, critic = self._deterministic_funnel_after_empty_gemini(initial, rough, critic)
         selections: list[CouponSelection] = []
+        analysis_audit: list[dict[str, object]] = []
         analysis_cost = Decimal("0")
         finalist_analysis_timed_out = False
-        for fixture_id in critic.selected_fixture_ids:
+        for fixture_id in critic.selected_fixture_ids[: self._max_ai_finalists]:
             candidate = by_id[fixture_id]
             try:
                 market = await asyncio.wait_for(self._odds.wide_market_for(fixture_id), timeout=45)
@@ -286,8 +300,13 @@ class AutoCouponService:
                 )
             except TimeoutError:
                 finalist_analysis_timed_out = True
+                analysis_audit.append({"fixture_id": str(fixture_id), "status": "timeout"})
                 break
-            except (PermissionError, RuntimeError, ValueError, KeyError, httpx.HTTPError):
+            except (PermissionError, RuntimeError, ValueError, KeyError, httpx.HTTPError) as error:
+                analysis_audit.append({
+                    "fixture_id": str(fixture_id), "status": "failed",
+                    "error_type": type(error).__name__,
+                })
                 continue
             if locked.lock_id is None:
                 raise RuntimeError("AUTO_COUPON_LOCK_REQUIRED")
@@ -297,9 +316,28 @@ class AutoCouponService:
                     extra={"fixture_id": str(fixture_id), "run_id": str(run_id)},
                 )
                 continue
+            audit: dict[str, object] = {
+                "fixture_id": str(fixture_id),
+                "fixture": f"{candidate.fixture.home_team} - {candidate.fixture.away_team}",
+                "status": "completed",
+                "analysis_run_id": str(locked.run_id),
+                "lock_id": str(locked.lock_id),
+                "provider": locked.forecast.analysis_provider,
+                "model_ids": tuple(dict.fromkeys(locked.forecast.model_ids)),
+                "forecast": locked.forecast.model_dump(mode="json"),
+            }
+            try:
+                dossier = self._analysis.get_evidence(locked.run_id)
+                audit["coverage"] = dossier.coverage
+                audit["stage_outputs"] = dossier.stage_outputs
+            except KeyError:
+                audit["coverage"] = {}
+            analysis_audit.append(audit)
             best = self._best_market_selection(market, locked.forecast, candidate.fixture, now)
             if best is None:
+                audit["selection_result"] = "value_gate_rejected"
                 continue
+            audit["selection_result"] = "value_gate_passed"
             quote, model_probability, edge, value_score = best
             pick: Pick = self._pick_key(quote)
             model_fair_odds = (Decimal("1") / model_probability).quantize(
@@ -400,6 +438,14 @@ class AutoCouponService:
             actual_cost_usd=(funnel_cost + analysis_cost).quantize(
                 Decimal(".000001"), rounding=ROUND_HALF_UP
             ),
+            ai_provider=(self._analysis.analyzer.analysis_provider if self._analysis.analyzer else "none"),
+            ai_status=(
+                "disabled" if self._funnel is None else
+                "degraded" if funnel_failed or finalist_analysis_timed_out or any(
+                    item["status"] == "failed" for item in analysis_audit
+                ) else "completed" if analysis_audit else "not_run"
+            ),
+            analysis_audit=tuple(analysis_audit),
             notice=self._run_notice(
                 source_mode=source_mode,
                 finalist_analysis_timed_out=finalist_analysis_timed_out,
@@ -454,6 +500,7 @@ class AutoCouponService:
         scan_end = self._scan_end(now)
         return (
             run.state == "completed"
+            and (self._funnel is None or run.ai_provider != "none")
             and run.source_mode == "bookmaker_live"
             and now - run.observed_at <= self._reuse_interval
             and bool(run.selections)
@@ -473,21 +520,31 @@ class AutoCouponService:
 
     def readiness(self) -> AutoCouponReadiness:
         bookmaker_ready = self._odds.available
-        gemini_ready = self._funnel is not None
+        ai_ready = self._funnel is not None
         deep_data_ready = self._analysis.deep_data_ready
         deep_ready = self._analysis.deep_analysis_ready
         blockers: list[str] = []
         if not bookmaker_ready:
             blockers.append("AUTO_COUPON_LIVE_MARKET_REQUIRED")
-        if gemini_ready and not deep_data_ready:
+        if ai_ready and not deep_data_ready:
             blockers.append("AUTO_COUPON_DEEP_DATA_REQUIRED")
-        if gemini_ready and not deep_ready:
+        if ai_ready and not deep_ready:
             blockers.append("AUTO_COUPON_DEEP_ANALYSIS_NOT_READY")
         return AutoCouponReadiness(
             ready=not blockers,
             live_fixtures=self._live_fixtures_available,
             live_bookmaker_odds=bookmaker_ready,
-            gemini_analysis=gemini_ready,
+            ai_analysis=ai_ready,
+            analysis_provider=(
+                self._analysis.analyzer.analysis_provider
+                if self._analysis.analyzer is not None
+                else "none"
+            ),
+            gemini_analysis=(
+                ai_ready
+                and self._analysis.analyzer is not None
+                and self._analysis.analyzer.analysis_provider == "google_gemini"
+            ),
             deep_structured_data=deep_data_ready,
             deep_analysis_ready=deep_ready,
             implemented_analysis_stages=self._analysis.implemented_stage_ids,
@@ -495,14 +552,14 @@ class AutoCouponService:
             supported_market_keys=self._odds.supported_market_keys,
             blockers=tuple(blockers),
             notice=self._readiness_notice(
-                bookmaker_ready, gemini_ready, deep_data_ready, deep_ready
+                bookmaker_ready, ai_ready, deep_data_ready, deep_ready
             ),
         )
 
     @staticmethod
     def _readiness_notice(
         bookmaker_ready: bool,
-        gemini_ready: bool,
+        ai_ready: bool,
         deep_data_ready: bool,
         deep_ready: bool,
     ) -> str:
@@ -511,9 +568,9 @@ class AutoCouponService:
                 "Canlı fikstür ve derin analiz hazır; canlı bookmaker oranı olmadan "
                 "otomatik kupon üretilmez."
             )
-        if not gemini_ready:
+        if not ai_ready:
             return (
-                "Gemini analiz rotası kapalı; ücretsiz maliyet korumalı modda canlı "
+                "AI analiz rotası kapalı; maliyet korumalı modda canlı "
                 "bookmaker oranları ve deterministik puanlama ile kupon üretilebilir."
             )
         if not deep_data_ready:
@@ -523,7 +580,7 @@ class AutoCouponService:
             )
         if not deep_ready:
             return (
-                "Derin veri bağlı fakat 30 aşamalı Gemini kanıt zinciri eksik; "
+                "Derin veri bağlı fakat 30 aşamalı AI kanıt zinciri eksik; "
                 "tamamlanmadan kupon üretilmez."
             )
         return "Canlı bookmaker verisi ve derin analiz aşamaları hazır."

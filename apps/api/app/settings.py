@@ -1,9 +1,10 @@
 from decimal import Decimal
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 from zoneinfo import ZoneInfo
 
-from pydantic import Field, SecretStr, field_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -26,6 +27,13 @@ class Settings(BaseSettings):
     GEMINI_API_BASE_URL: str = "https://generativelanguage.googleapis.com/v1beta"
     GEMINI_ENABLED: bool = False
     GEMINI_ANALYSIS_TIMEOUT_SECONDS: int = Field(default=600, ge=30, le=900)
+    AI_PROVIDER: Literal["auto", "disabled", "google_gemini", "nvidia_nim"] = "auto"
+    NVIDIA_API_KEY: SecretStr = SecretStr("")
+    NVIDIA_API_BASE_URL: str = "https://integrate.api.nvidia.com/v1"
+    NVIDIA_ENABLED: bool = False
+    NVIDIA_MAX_CONCURRENCY: int = Field(default=2, ge=1, le=4)
+    AI_ANALYSIS_TIMEOUT_SECONDS: int = Field(default=600, ge=30, le=900)
+    AI_FUNNEL_TIMEOUT_SECONDS: int = Field(default=120, ge=30, le=300)
     CONFIG_DIR: Path = Path("/workspace/config")
     LIVE_FIXTURES_ENABLED: bool = False
     OPENLIGADB_BASE_URL: str = "https://api.openligadb.de"
@@ -75,6 +83,7 @@ class Settings(BaseSettings):
     AUTO_COUPON_SETTLEMENT_SECONDS: int = Field(default=300, ge=60, le=3_600)
     AUTO_COUPON_BACKGROUND_SETTLEMENT_ENABLED: bool = True
     AUTO_COUPON_FINALIST_ANALYSIS_TIMEOUT_SECONDS: int = Field(default=600, ge=45, le=900)
+    AUTO_COUPON_MAX_AI_FINALISTS: int = Field(default=2, ge=1, le=3)
     AUTO_COUPON_REQUEST_TIMEOUT_SECONDS: int = Field(default=900, ge=180, le=1_800)
     AUTO_COUPON_FORCE_DAILY_TICKET: bool = True
     AUTO_COUPON_FORCED_MIN_COMBINED_ODDS: Decimal = Field(default=Decimal("1.80"), ge=Decimal("1.50"), le=Decimal("3.00"))
@@ -103,6 +112,37 @@ class Settings(BaseSettings):
         if value <= 0:
             raise ValueError("RUN_HARD_CAP_USD must be positive")
         return value
+
+    @model_validator(mode="after")
+    def exactly_one_configured_ai_provider(self) -> "Settings":
+        enabled = {
+            "google_gemini": self.GEMINI_ENABLED,
+            "nvidia_nim": self.NVIDIA_ENABLED,
+        }
+        if sum(int(value) for value in enabled.values()) > 1:
+            raise ValueError("MULTIPLE_AI_PROVIDERS_ENABLED")
+        if self.AI_PROVIDER == "disabled" and any(enabled.values()):
+            raise ValueError("AI_PROVIDER_DISABLED_BUT_PROVIDER_ENABLED")
+        if self.AI_PROVIDER in enabled and not enabled[self.AI_PROVIDER]:
+            raise ValueError("AI_PROVIDER_NOT_ENABLED")
+        selected = self.selected_ai_provider
+        if selected == "google_gemini" and not self.GEMINI_API_KEY.get_secret_value():
+            raise ValueError("GEMINI_API_KEY_MISSING")
+        if selected == "nvidia_nim" and not self.NVIDIA_API_KEY.get_secret_value():
+            raise ValueError("NVIDIA_API_KEY_MISSING")
+        return self
+
+    @property
+    def selected_ai_provider(self) -> Literal["google_gemini", "nvidia_nim"] | None:
+        if self.AI_PROVIDER == "disabled":
+            return None
+        if self.AI_PROVIDER in {"google_gemini", "nvidia_nim"}:
+            return self.AI_PROVIDER
+        if self.NVIDIA_ENABLED:
+            return "nvidia_nim"
+        if self.GEMINI_ENABLED:
+            return "google_gemini"
+        return None
 
     @property
     def openligadb_leagues(self) -> tuple[str, ...]:

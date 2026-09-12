@@ -1,43 +1,72 @@
 schema_version: model-registry.v1
-verified_at: 2026-08-22T00:00:00Z
-verification_expires_at: 2026-09-22T00:00:00Z
+verified_at: 2026-09-05T00:00:00Z
+verification_expires_at: 2026-10-08T00:00:00Z
 currency: USD
 routes:
   grounded_research:
-    provider: google_gemini
-    model_id: gemini-3.5-flash
-    capabilities: [structured_output, function_calling, thinking, search_grounding, url_context]
-    input_usd_per_mtok: "1.50"
-    cached_input_usd_per_mtok: "0.15"
-    output_usd_per_mtok: "9.00"
-    max_calls_per_run: 4
-  normalization:
-    provider: google_gemini
-    model_id: gemini-3.5-flash-lite
-    capabilities: [structured_output, function_calling, thinking]
-    input_usd_per_mtok: "0.30"
-    cached_input_usd_per_mtok: "0.03"
-    output_usd_per_mtok: "2.50"
-    max_calls_per_run: 8
-  critic:
-    provider: google_gemini
-    model_id: gemini-3.6-flash
-    capabilities: [structured_output, function_calling, thinking, search_grounding]
-    input_usd_per_mtok: "0.75"
+    provider: nvidia_nim
+    model_id: nvidia/nemotron-3.5-lightning-30b-a3b
+    capabilities: [structured_output, thinking, long_context, supplied_evidence_only]
+    billing_mode: trial_rate_limited
+    input_usd_per_mtok: "0.00"
     cached_input_usd_per_mtok: null
-    output_usd_per_mtok: "3.75"
-    max_calls_per_run: 6
+    output_usd_per_mtok: "0.00"
+    max_output_tokens: 8192
+    max_calls_per_run: 1
+  normalization:
+    provider: nvidia_nim
+    model_id: nvidia/nemotron-3.5-lightning-30b-a3b
+    capabilities: [structured_output, thinking, long_context]
+    billing_mode: trial_rate_limited
+    input_usd_per_mtok: "0.00"
+    cached_input_usd_per_mtok: null
+    output_usd_per_mtok: "0.00"
+    max_output_tokens: 4096
+    max_calls_per_run: 1
+  specialist:
+    provider: nvidia_nim
+    model_id: nvidia/nemotron-3.5-lightning-30b-a3b
+    capabilities: [structured_output, thinking, long_context]
+    billing_mode: trial_rate_limited
+    input_usd_per_mtok: "0.00"
+    cached_input_usd_per_mtok: null
+    output_usd_per_mtok: "0.00"
+    max_output_tokens: 4096
+    max_calls_per_run: 4
+  critic:
+    provider: nvidia_nim
+    model_id: nvidia/nemotron-3-super-120b-a12b
+    capabilities: [structured_output, thinking, long_context]
+    billing_mode: trial_rate_limited
+    input_usd_per_mtok: "0.00"
+    cached_input_usd_per_mtok: null
+    output_usd_per_mtok: "0.00"
+    max_output_tokens: 6144
+    max_calls_per_run: 1
   committee:
-    provider: google_gemini
-    model_id: gemini-3.5-flash
-    capabilities: [structured_output, function_calling, thinking, search_grounding, url_context]
-    input_usd_per_mtok: "1.50"
-    cached_input_usd_per_mtok: "0.15"
-    output_usd_per_mtok: "9.00"
-    max_calls_per_run: 5
+    provider: nvidia_nim
+    model_id: nvidia/nemotron-3-super-120b-a12b
+    capabilities: [structured_output, thinking, long_context]
+    billing_mode: trial_rate_limited
+    input_usd_per_mtok: "0.00"
+    cached_input_usd_per_mtok: null
+    output_usd_per_mtok: "0.00"
+    max_output_tokens: 6144
+    max_calls_per_run: 3
+  final_critic:
+    provider: nvidia_nim
+    model_id: nvidia/nemotron-3-ultra-550b-a55b
+    capabilities: [structured_output, thinking, long_context]
+    billing_mode: trial_rate_limited
+    input_usd_per_mtok: "0.00"
+    cached_input_usd_per_mtok: null
+    output_usd_per_mtok: "0.00"
+    max_output_tokens: 3072
+    max_calls_per_run: 1
 policies:
   reject_expired_verification: true
   reject_unknown_price: true
   reject_missing_capability: true
   record_provider_request_id: true
   store_prompts_without_secrets: true
+  trial_endpoint_is_not_production_sla: true

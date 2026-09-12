@@ -213,8 +213,8 @@ class PostgresAnalysisRepository:
         config_sha256 = sha256_text(config_json)
         config_snapshot_id = uuid5(NAMESPACE_URL, f"miron-baba-ai:config:{config_sha256}")
         prompt_bundle_version = (
-            "gemini-ensemble.v1"
-            if run.forecast.analysis_provider == "google_gemini"
+            "evidence-ensemble.v2"
+            if run.forecast.analysis_provider in {"google_gemini", "nvidia_nim"}
             else "mock-prompts.v1"
         )
         forecast_json = canonical_json(run.forecast.model_dump(mode="json"))

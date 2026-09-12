@@ -28,7 +28,7 @@ export type AnalysisRun = {
     decisive_evidence: string[];
     dissent_summary: string[];
     responsible_use_notice: string;
-    analysis_provider: "mock" | "google_gemini";
+    analysis_provider: "mock" | "google_gemini" | "nvidia_nim";
     model_ids: string[];
   };
   actual_cost_usd: string;

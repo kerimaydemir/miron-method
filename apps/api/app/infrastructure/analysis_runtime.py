@@ -11,6 +11,7 @@ from app.infrastructure.config_loader import load_model_registry, load_provider_
 from app.infrastructure.espn_soccer_provider import EspnSoccerProvider
 from app.infrastructure.fixture_runtime import analysis_fixture_provider, rapidapi_provider
 from app.infrastructure.lock_object_store import S3LockObjectStore
+from app.infrastructure.nvidia_nim_client import NvidiaNimClient
 from app.infrastructure.open_meteo_provider import OpenMeteoProvider
 from app.infrastructure.sportmonks_provider import SportmonksProvider
 from app.infrastructure.thesportsdb_provider import TheSportsDbProvider
@@ -32,17 +33,33 @@ analysis_repository = (
     else NullAnalysisRepository()
 )
 
-gemini_analyzer = (
-    GeminiAnalysisService(
+if settings.selected_ai_provider == "nvidia_nim":
+    nvidia_analysis_client = NvidiaNimClient(
+        settings.NVIDIA_API_KEY.get_secret_value(),
+        settings.NVIDIA_API_BASE_URL,
+        max_concurrency=settings.NVIDIA_MAX_CONCURRENCY,
+    )
+    gemini_analyzer = GeminiAnalysisService(
+        api_key=settings.NVIDIA_API_KEY.get_secret_value(),
+        base_url=settings.NVIDIA_API_BASE_URL,
+        model_registry=load_model_registry(settings.CONFIG_DIR / "models.yaml"),
+        provider_registry=load_provider_registry(settings.CONFIG_DIR / "providers.yaml"),
+        run_hard_cap_usd=settings.RUN_HARD_CAP_USD,
+        client=nvidia_analysis_client,
+        provider_id="nvidia_nim",
+        analysis_provider="nvidia_nim",
+        search_grounding_enabled=False,
+    )
+elif settings.selected_ai_provider == "google_gemini":
+    gemini_analyzer = GeminiAnalysisService(
         api_key=settings.GEMINI_API_KEY.get_secret_value(),
         base_url=settings.GEMINI_API_BASE_URL,
         model_registry=load_model_registry(settings.CONFIG_DIR / "models.yaml"),
         provider_registry=load_provider_registry(settings.CONFIG_DIR / "providers.yaml"),
         run_hard_cap_usd=settings.RUN_HARD_CAP_USD,
     )
-    if settings.GEMINI_ENABLED
-    else None
-)
+else:
+    gemini_analyzer = None
 
 configured_deep_evidence_providers: list[DeepEvidenceProvider] = []
 if settings.espn_enabled:
@@ -100,11 +117,13 @@ analysis_service = AnalysisRunService(
     gemini_analyzer,
     analysis_fixture_provider,
     deep_evidence_provider,
-    analysis_timeout_seconds=settings.GEMINI_ANALYSIS_TIMEOUT_SECONDS,
+    analysis_timeout_seconds=settings.AI_ANALYSIS_TIMEOUT_SECONDS,
 )
 
 
 async def stop_analysis_runtime() -> None:
+    if gemini_analyzer is not None:
+        await gemini_analyzer.close()
     close = getattr(deep_evidence_provider, "close", None)
     if close is not None:
         await close()

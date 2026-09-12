@@ -405,6 +405,9 @@ class AutoCouponRun(BaseModel):
     post_match_review: DailyReviewReport | None = None
     rag_case_count: int = Field(ge=0)
     actual_cost_usd: Decimal = Field(ge=0)
+    ai_provider: Literal["none", "google_gemini", "nvidia_nim"] = "none"
+    ai_status: Literal["disabled", "completed", "degraded", "not_run"] = "disabled"
+    analysis_audit: tuple[dict[str, object], ...] = ()
     notice: str = "Olasılıksal seçimdir; kesinlik veya bahis tavsiyesi değildir."
 
 
@@ -460,6 +463,8 @@ class AutoCouponReadiness(BaseModel):
     ready: bool
     live_fixtures: bool
     live_bookmaker_odds: bool
+    ai_analysis: bool
+    analysis_provider: Literal["none", "google_gemini", "nvidia_nim"]
     gemini_analysis: bool
     deep_structured_data: bool
     deep_analysis_ready: bool

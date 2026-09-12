@@ -84,7 +84,7 @@ class FinalForecast(BaseModel):
     uncertainty_drivers: tuple[str, ...]
     decisive_evidence: tuple[str, ...]
     dissent_summary: tuple[str, ...]
-    analysis_provider: Literal["mock", "google_gemini"] = "mock"
+    analysis_provider: Literal["mock", "google_gemini", "nvidia_nim"] = "mock"
     model_ids: tuple[str, ...] = ()
     publish_status: Literal["degraded_publish"] = "degraded_publish"
     responsible_use_notice: str = (

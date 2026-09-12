@@ -335,11 +335,14 @@ class PostgresAutoCouponRepository:
                     cast(int | None, item["final_home_score"]),
                     cast(int | None, item["final_away_score"]),
                     _settlement_explanation(item["post_match_json"]),
+                    cast(UUID | None, item["analysis_run_id"]),
+                    cast(UUID | None, item["prediction_lock_id"]),
                 )
                 for item in connection.execute(
                     text("""
                     SELECT fixture_id, settlement_status, process_verdict,
-                           final_home_score, final_away_score, post_match_json
+                           final_home_score, final_away_score, post_match_json,
+                           analysis_run_id, prediction_lock_id
                     FROM coupon_selections
                     WHERE auto_coupon_run_id = :id
                     """),
@@ -347,14 +350,19 @@ class PostgresAutoCouponRepository:
                 ).mappings()
             }
         run = AutoCouponRun.model_validate(row["run_json"])
+        default_status = ("pending", "pending", None, None, None, None, None)
         selections = tuple(
             item.model_copy(
                 update={
-                    "settlement_status": statuses.get(item.fixture.id, ("pending", "pending", None, None, None))[0],
-                    "process_verdict": statuses.get(item.fixture.id, ("pending", "pending", None, None, None))[1],
-                    "final_home_score": statuses.get(item.fixture.id, ("pending", "pending", None, None, None))[2],
-                    "final_away_score": statuses.get(item.fixture.id, ("pending", "pending", None, None, None))[3],
-                    "settlement_explanation": statuses.get(item.fixture.id, ("pending", "pending", None, None, None))[4],
+                    "settlement_status": statuses.get(item.fixture.id, default_status)[0],
+                    "process_verdict": statuses.get(item.fixture.id, default_status)[1],
+                    "final_home_score": statuses.get(item.fixture.id, default_status)[2],
+                    "final_away_score": statuses.get(item.fixture.id, default_status)[3],
+                    "settlement_explanation": statuses.get(item.fixture.id, default_status)[4],
+                    # Relational references are authoritative. Older JSON snapshots
+                    # contain placeholder model IDs that never existed in analysis_runs.
+                    "analysis_run_id": statuses.get(item.fixture.id, default_status)[5],
+                    "lock_id": statuses.get(item.fixture.id, default_status)[6],
                 }
             )
             for item in run.selections

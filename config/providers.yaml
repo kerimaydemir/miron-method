@@ -1,5 +1,11 @@
 schema_version: provider-registry.v1
 providers:
+  nvidia_nim:
+    provider_type: model
+    enabled: true
+    approval_status: approved_by_user_trial_endpoint
+    allowed_methods: [GET, POST]
+    forbidden_actions: [bet_placement, account_automation, restricted_scraping]
   google_gemini:
     provider_type: model
     enabled: true

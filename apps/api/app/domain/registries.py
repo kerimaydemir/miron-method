@@ -10,10 +10,21 @@ class ModelRoute(BaseModel):
     provider: str
     model_id: str
     capabilities: frozenset[str]
+    billing_mode: Literal["metered", "trial_rate_limited"] = "metered"
     input_usd_per_mtok: Decimal | None = Field(default=None, ge=0)
     cached_input_usd_per_mtok: Decimal | None = Field(default=None, ge=0)
     output_usd_per_mtok: Decimal | None = Field(default=None, ge=0)
+    max_output_tokens: int = Field(default=8_192, ge=64, le=65_536)
     max_calls_per_run: int = Field(ge=1, le=100)
+
+    @model_validator(mode="after")
+    def trial_prices_are_explicitly_zero(self) -> "ModelRoute":
+        if self.billing_mode == "trial_rate_limited" and (
+            self.input_usd_per_mtok != Decimal("0")
+            or self.output_usd_per_mtok != Decimal("0")
+        ):
+            raise ValueError("TRIAL_ROUTE_PRICE_MUST_BE_ZERO")
+        return self
 
 
 class ModelRegistry(BaseModel):

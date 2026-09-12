@@ -149,7 +149,7 @@ class AnalysisRunService:
                         },
                     )
             try:
-                gemini_result = (
+                model_result = (
                     await asyncio.wait_for(
                         self.analyzer.analyze(fixture, factors, now, deep_evidence),
                         timeout=self._analysis_timeout_seconds,
@@ -159,15 +159,15 @@ class AnalysisRunService:
                 )
             except TimeoutError as error:
                 logger.warning(
-                    "Gemini analysis timed out",
+                    "AI analysis timed out",
                     extra={
                         "fixture_id": str(fixture.id),
                         "timeout_seconds": self._analysis_timeout_seconds,
                     },
                 )
-                raise RuntimeError("GEMINI_ANALYSIS_TIMED_OUT") from error
-            stage_summaries = gemini_result.stage_summaries if gemini_result else {}
-            stage_costs = gemini_result.stage_costs if gemini_result else {}
+                raise RuntimeError("AI_ANALYSIS_TIMED_OUT") from error
+            stage_summaries = model_result.stage_summaries if model_result else {}
+            stage_costs = model_result.stage_costs if model_result else {}
             completed_stage_ids = {"S00", "S30", *stage_summaries}
             stages = tuple(
                 StageView(
@@ -176,7 +176,7 @@ class AnalysisRunService:
                     status="completed" if stage_id in completed_stage_ids else "degraded",
                     summary=stage_summaries.get(
                         stage_id,
-                        self._summary(stage_id, live_gemini=gemini_result is not None),
+                        self._summary(stage_id, live_model=model_result is not None),
                     ),
                     started_at=now + timedelta(milliseconds=index * 3),
                     completed_at=now + timedelta(milliseconds=index * 3 + 2),
@@ -185,7 +185,7 @@ class AnalysisRunService:
                 for index, (stage_id, name) in enumerate(PRE_MATCH_STAGES)
             )
             forecast = (
-                gemini_result.forecast if gemini_result else self._mock_forecast(fixture.id, now)
+                model_result.forecast if model_result else self._mock_forecast(fixture.id, now)
             )
             run = AnalysisRunView(
                 run_id=run_id,
@@ -195,14 +195,14 @@ class AnalysisRunService:
                 kickoff_at_snapshot=fixture.kickoff_at,
                 stages=stages,
                 forecast=forecast,
-                actual_cost_usd=(gemini_result.actual_cost_usd if gemini_result else Decimal("0")),
+                actual_cost_usd=(model_result.actual_cost_usd if model_result else Decimal("0")),
                 correlation_id=correlation_id,
                 created_at=now,
             )
             self._runs[run_id] = run
             self._keys[idempotency_key] = (request_hash, run_id)
             self.repository.ensure_fixture(fixture)
-            stage_outputs = gemini_result.stage_outputs if gemini_result else {}
+            stage_outputs = model_result.stage_outputs if model_result else {}
             self.repository.save_started(
                 run,
                 idempotency_key,
@@ -305,10 +305,10 @@ class AnalysisRunService:
         )
 
     @staticmethod
-    def _summary(stage_id: str, *, live_gemini: bool = False) -> str:
-        if live_gemini:
+    def _summary(stage_id: str, *, live_model: bool = False) -> str:
+        if live_model:
             live_summaries = {
-                "S00": "Fikstür kimliği, kesme zamanı ve Gemini bütçe sınırı doğrulandı.",
+                "S00": "Fikstür kimliği, kesme zamanı ve AI bütçe sınırı doğrulandı.",
                 "S30": "Değiştirilemez tahmin manifesti için bütünlük paketi hazırlandı.",
             }
             return live_summaries.get(

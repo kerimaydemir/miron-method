@@ -65,14 +65,14 @@ export function Dashboard() {
               <i />
               <i />
             </span>
-            Gemini-only rota
+            Kanıt odaklı analiz
           </div>
         </div>
       </header>
 
       <section className="ai-hero" aria-labelledby="hero-title">
         <div className="online-pill">
-          <i aria-hidden="true" /> Canlı fikstür · Gemini aktif
+          <i aria-hidden="true" /> {formatObserved(scan.data?.source_observed_at)}
         </div>
         <h1 id="hero-title">
           Maçı seç.
@@ -142,7 +142,7 @@ export function Dashboard() {
       <section className="results-section" aria-labelledby="results-title">
         <div className="results-head">
           <div>
-            <small>AI seçimi</small>
+            <small>Ön sıralama</small>
             <h2 id="results-title">Analize değer maçlar</h2>
           </div>
           <span>
@@ -171,7 +171,7 @@ export function Dashboard() {
               >
                 <div className="score-ring">
                   <strong>{candidate.worthwhile_score}</strong>
-                  <small>AI skor</small>
+                  <small>Tarama puanı</small>
                 </div>
                 <div className="fixture-main">
                   <small>
@@ -211,8 +211,7 @@ export function Dashboard() {
       <footer className="minimal-footer">
         <span>MİRON BABA AI</span>
         <span>
-          football-data.org / OpenLigaDB · Gemini-only · Bahis tavsiyesi
-          değildir
+          Kaynak ve model bilgisi her analizde kayıtlıdır
         </span>
       </footer>
     </main>

@@ -9,20 +9,11 @@ import {
 } from "./use-analysis";
 
 const LABELS = { home: "Ev", draw: "Beraberlik", away: "Deplasman" } as const;
-const GEMINI_MODEL_FALLBACKS = [
-  "gemini-3.7-flash",
-  "gemini-3.5-flash-lite",
-  "gemini-3.6-flash",
-  "gemini-3.5-flash",
-] as const;
-const GEMINI_ROLES = ["Araştırma", "Ayrıştırma", "Eleştiri", "Sentez"] as const;
-
-function formatModelId(modelId: string) {
-  return modelId
-    .replace(/^gemini-/, "Gemini ")
-    .replace(/-preview$/, " Preview")
-    .replaceAll("-", " ");
-}
+const PROVIDER_LABELS = {
+  mock: "Deneme verisi · mock",
+  google_gemini: "Google Gemini",
+  nvidia_nim: "NVIDIA NIM",
+} as const;
 
 function DetailedStageDossier({ dossier }: { dossier: StageDossier }) {
   const groups: Array<[string, string[] | undefined]> = [
@@ -85,11 +76,9 @@ export function RunView({ runId }: { runId: string }) {
   }
 
   const data = run.data;
-  const isLiveGemini = data.forecast.analysis_provider === "google_gemini";
-  const displayedModels =
-    data.forecast.model_ids.length === GEMINI_ROLES.length
-      ? data.forecast.model_ids
-      : GEMINI_MODEL_FALLBACKS;
+  const isMock = data.forecast.analysis_provider === "mock";
+  const providerLabel = PROVIDER_LABELS[data.forecast.analysis_provider];
+  const displayedModels = [...new Set(data.forecast.model_ids.filter(Boolean))];
   const leader = data.forecast.outcome_probabilities.reduce((best, item) =>
     Number(item.probability) > Number(best.probability) ? item : best,
   );
@@ -105,7 +94,7 @@ export function RunView({ runId }: { runId: string }) {
             <i />
             <i />
           </span>
-          Gemini-only rota
+          {providerLabel}
         </div>
       </header>
 
@@ -114,17 +103,17 @@ export function RunView({ runId }: { runId: string }) {
           <span className={data.state === "LOCKED" ? "locked" : ""}>
             {data.state === "LOCKED" ? "Kilitli tahmin" : "Analiz tamamlandı"}
           </span>
-          <small>{data.stages.length} bağımsız kontrol</small>
+          <small>{data.stages.length} kayıtlı aşama</small>
         </div>
         <h1>
           {LABELS[leader.outcome]}
           <span>%{Math.round(Number(leader.probability) * 100)}</span>
         </h1>
         <p>
-          {isLiveGemini
-            ? "Dört gerçek Gemini modeli aynı kanıt paketini ayrıştırma, araştırma, eleştiri ve sentez görevleriyle inceledi."
-            : "Dört Gemini rolü yapılandırıldı. Bu sonuç mock modundadır."}{" "}
-          Geldiği modelden bağımsız olarak bu çıktı kesinlik değildir.
+          {isMock
+            ? "Bu sonuç deneme modunda üretildi; gerçek bir model tahmini değildir."
+            : `${providerLabel} ile üretilen bu analizin kayıtlı modelleri ve kanıtları aşağıda.`}{" "}
+          Olasılıklar ön değerlendirmedir; ölçülmüş başarı oranı değildir.
         </p>
 
         <div className="probability-stack" aria-label="Sonuç olasılıkları">
@@ -152,16 +141,25 @@ export function RunView({ runId }: { runId: string }) {
         </div>
       </section>
 
-      <section className="model-rail" aria-label="Gemini model rolleri">
-        {displayedModels.map((modelId, index) => (
-          <article key={modelId}>
-            <span>{index + 1}</span>
+      <section className="model-rail" aria-label="Bu analizde kayıtlı modeller">
+        {displayedModels.length === 0 ? (
+          <article>
             <div>
-              <strong>{formatModelId(modelId)}</strong>
-              <small>{GEMINI_ROLES[index]}</small>
+              <strong>{isMock ? "Mock çalışma" : "Model kaydı yok"}</strong>
+              <small>Bu çalışma için model adı bildirilmedi.</small>
             </div>
           </article>
-        ))}
+        ) : (
+          displayedModels.map((modelId, index) => (
+            <article key={modelId}>
+              <span>{index + 1}</span>
+              <div>
+                <strong>{modelId}</strong>
+                <small>{isMock ? "Mock kaydındaki model" : "Çalışma kaydı"}</small>
+              </div>
+            </article>
+          ))
+        )}
       </section>
 
       <section className="insight-grid">
@@ -189,12 +187,16 @@ export function RunView({ runId }: { runId: string }) {
             </strong>
           </div>
           <div>
-            <small>Maliyet</small>
+            <small>Kaydedilen maliyet</small>
             <strong>${data.actual_cost_usd}</strong>
           </div>
           <div>
             <small>Kalibrasyon</small>
-            <strong>{data.forecast.calibration_status}</strong>
+            <strong>
+              {data.forecast.calibration_status === "provisional"
+                ? "Ön değerlendirme"
+                : data.forecast.calibration_status}
+            </strong>
           </div>
         </article>
       </section>
@@ -202,7 +204,7 @@ export function RunView({ runId }: { runId: string }) {
       <details className="audit-details">
         <summary>
           <span>
-            <strong>31 aşamalı denetim izi</strong>
+            <strong>{data.stages.length} aşamalı denetim izi</strong>
             <small>Kanıt, quant, eleştiri ve sentez adımlarının tamamı</small>
           </span>
           <span aria-hidden="true">+</span>

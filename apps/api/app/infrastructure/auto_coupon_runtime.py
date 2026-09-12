@@ -15,6 +15,7 @@ from app.infrastructure.fixture_runtime import (
     fixture_provider,
     odds_provider,
 )
+from app.infrastructure.nvidia_nim_client import NvidiaNimClient
 from app.infrastructure.post_match_runtime import post_match_service
 from app.settings import get_settings
 
@@ -26,16 +27,28 @@ auto_coupon_repository = (
     if settings.PERSISTENCE_ENABLED
     else NullAutoCouponRepository()
 )
-coupon_funnel = (
-    GeminiCouponFunnel(
+if settings.selected_ai_provider == "nvidia_nim":
+    coupon_funnel = GeminiCouponFunnel(
+        api_key=settings.NVIDIA_API_KEY.get_secret_value(),
+        base_url=settings.NVIDIA_API_BASE_URL,
+        model_registry=load_model_registry(settings.CONFIG_DIR / "models.yaml"),
+        provider_registry=load_provider_registry(settings.CONFIG_DIR / "providers.yaml"),
+        provider_id="nvidia_nim",
+        client=NvidiaNimClient(
+            settings.NVIDIA_API_KEY.get_secret_value(),
+            settings.NVIDIA_API_BASE_URL,
+            max_concurrency=settings.NVIDIA_MAX_CONCURRENCY,
+        ),
+    )
+elif settings.selected_ai_provider == "google_gemini":
+    coupon_funnel = GeminiCouponFunnel(
         api_key=settings.GEMINI_API_KEY.get_secret_value(),
         base_url=settings.GEMINI_API_BASE_URL,
         model_registry=load_model_registry(settings.CONFIG_DIR / "models.yaml"),
         provider_registry=load_provider_registry(settings.CONFIG_DIR / "providers.yaml"),
     )
-    if settings.GEMINI_ENABLED
-    else None
-)
+else:
+    coupon_funnel = None
 auto_coupon_service = AutoCouponService(
     fixtures=fixture_provider,
     analysis_fixtures=analysis_fixture_provider,
@@ -47,7 +60,9 @@ auto_coupon_service = AutoCouponService(
     live_fixtures_available=settings.LIVE_FIXTURES_ENABLED,
     window_days=settings.AUTO_COUPON_WINDOW_DAYS,
     reuse_seconds=settings.AUTO_COUPON_REUSE_SECONDS,
+    funnel_timeout_seconds=settings.AI_FUNNEL_TIMEOUT_SECONDS,
     finalist_analysis_timeout_seconds=settings.AUTO_COUPON_FINALIST_ANALYSIS_TIMEOUT_SECONDS,
+    max_ai_finalists=settings.AUTO_COUPON_MAX_AI_FINALISTS,
     force_daily_ticket=settings.AUTO_COUPON_FORCE_DAILY_TICKET,
     forced_min_combined_odds=settings.AUTO_COUPON_FORCED_MIN_COMBINED_ODDS,
     forced_max_combined_odds=settings.AUTO_COUPON_FORCED_MAX_COMBINED_ODDS,
@@ -79,6 +94,8 @@ async def stop_auto_coupon_runtime() -> None:
             await _settlement_task
         _settlement_task = None
     _stop_event = None
+    if coupon_funnel is not None:
+        await coupon_funnel.close()
 
 
 async def _settlement_loop(stop_event: asyncio.Event) -> None:

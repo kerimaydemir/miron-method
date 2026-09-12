@@ -5,7 +5,7 @@ import { Providers } from "./providers";
 
 export const metadata: Metadata = {
   title: "MİRON BABA AI",
-  description: "Gemini destekli, kanıt odaklı futbol analiz motoru.",
+  description: "Kanıt, güncel oran ve kayıtlı model analizleriyle futbol araştırması.",
 };
 
 export default function RootLayout({
