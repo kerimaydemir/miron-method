@@ -220,4 +220,5 @@ def test_funnel_request_uses_compact_market_snapshot_for_large_quote_sets() -> N
 
     assert len(request.prompt) < 200_000
     assert len(packet["candidates"][0]["market"]["quotes"]) == 24
-    assert len(packet["validated_case_memory"]) == 12
+    assert len(packet["historical_case_memory"]) == 12
+    assert "doğrulanmış nedensel" in request.system_instruction
