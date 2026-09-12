@@ -33,6 +33,7 @@ analysis_repository = (
     else NullAnalysisRepository()
 )
 
+gemini_analyzer: GeminiAnalysisService | None
 if settings.selected_ai_provider == "nvidia_nim":
     nvidia_analysis_client = NvidiaNimClient(
         settings.NVIDIA_API_KEY.get_secret_value(),

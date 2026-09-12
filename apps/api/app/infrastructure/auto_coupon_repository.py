@@ -468,16 +468,7 @@ class PostgresAutoCouponRepository:
                 text("""
                 UPDATE coupon_selections
                 SET settlement_status = :status,
-                    process_verdict = CASE
-                      WHEN :status = 'void' THEN 'insufficient_data'
-                      WHEN analysis_run_id IS NULL THEN 'insufficient_data'
-                      WHEN :status = 'won' AND edge >= 0.02 AND bookmaker_count >= 2
-                        THEN 'sound_win'
-                      WHEN :status = 'won' THEN 'lucky_win'
-                      WHEN :status = 'lost' AND edge >= 0.02 AND bookmaker_count >= 2
-                        THEN 'sound_but_unlucky_loss'
-                      ELSE 'bad_process_loss'
-                    END,
+                    process_verdict = 'insufficient_data',
                     autopsy_id = :autopsy_id, settled_at = :now,
                     final_home_score = :home_score, final_away_score = :away_score,
                     post_match_json = CAST(:post_match AS jsonb)
@@ -560,16 +551,8 @@ def _settlement_explanation(post_match: object) -> str | None:
 
 
 def _process_verdict(selection: object, status: str) -> str:
-    if status == "void":
-        return "insufficient_data"
-    if getattr(selection, "analysis_run_id", None) is None:
-        return "insufficient_data"
-    edge = getattr(selection, "edge", None)
-    bookmaker_count = int(getattr(selection, "bookmaker_count", 0))
-    sound = edge is not None and Decimal(edge) >= Decimal(".02") and bookmaker_count >= 2
-    if status == "won":
-        return "sound_win" if sound else "lucky_win"
-    return "sound_but_unlucky_loss" if sound else "bad_process_loss"
+    # Settlement establishes the outcome, not whether luck caused it.
+    return "insufficient_data"
 
 
 def _performance_from_records(records: list[dict[str, object]]) -> AutoCouponPerformance:

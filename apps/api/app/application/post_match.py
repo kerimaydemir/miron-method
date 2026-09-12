@@ -65,15 +65,10 @@ class PostMatchService:
             key=lambda item: item.probability,
         ).outcome
         result_verdict = "top_label_correct" if top_label == outcome else "top_label_incorrect"
-        process_verdict = (
-            "sound_but_uncertain"
-            if lock.manifest.forecast.confidence < Decimal(".70")
-            else "needs_review"
-        )
         pre_match_thesis = tuple(lock.manifest.forecast.decisive_evidence)
         uncertainty = "; ".join(lock.manifest.forecast.uncertainty_drivers)
         post_match_explanation = (
-            f"Ana seçim ({top_label}) gerçekleşti. Ön maç tezleri sonuçla uyumlu kaldı; "
+            f"Ana seçim ({top_label}) gerçekleşti. Skor, ön maç tezlerinin nedenlerini doğrulamaz; "
             "yine de başarı tek maçta model doğruluğunu kanıtlamaz."
             if result_verdict == "top_label_correct"
             else (
@@ -84,39 +79,17 @@ class PostMatchService:
         )
         variance = (
             VarianceAttribution(
-                category="forecast_error",
-                weight=Decimal(".25"),
-                rationale="Kilitli olasılık vektörü ile gerçekleşen sonuç arasındaki ölçülebilir hata.",
-            ),
-            VarianceAttribution(
-                category="scenario_miss",
-                weight=Decimal(".15"),
-                rationale="Düşük tempolu alternatif senaryonun ağırlığı yeniden incelenmeli.",
-            ),
-            VarianceAttribution(
-                category="data_miss",
-                weight=Decimal(".10"),
-                rationale="Kilit anında doğrulanmamış kadro verisinin sınırlı etkisi.",
-            ),
-            VarianceAttribution(
-                category="execution_variance",
-                weight=Decimal(".20"),
-                rationale="Saha içi bitiricilik ve uygulama sapması.",
-            ),
-            VarianceAttribution(
-                category="irreducible_variance",
-                weight=Decimal(".20"),
-                rationale="Model tarafından ayrıştırılamayan doğal maç değişkenliği.",
-            ),
-            VarianceAttribution(
                 category="unknown",
-                weight=Decimal(".10"),
-                rationale="Kanıtla güvenilir biçimde açıklanamayan açık bakiye.",
+                weight=Decimal("1"),
+                rationale=(
+                    "Yalnız final skoruyla şans, veri eksikliği veya taktik hata "
+                    "ayrıştırılamaz; olay düzeyi kanıt olmadan nedensel pay atanmamıştır."
+                ),
             ),
         )
         statement = (
-            "Doğrulanmamış kadro verisi bulunan düşük güvenli tahminlerde belirsizlik "
-            "aralığının kapsama performansı ayrı bir kohortta izlenmelidir."
+            "Bu skor sonucu kilitli tahminle karşılaştırıldı; süreç kalitesi ve şans etkisi "
+            "için olay düzeyi kanıt ve birden fazla maçta kalibrasyon incelemesi gereklidir."
         )
         validate_lesson_statement(statement)
         autopsy = AutopsyView(
@@ -130,15 +103,15 @@ class PostMatchService:
             predicted_outcome=top_label,
             brier_score=score_locked_forecast(lock, result),
             result_verdict=result_verdict,
-            process_verdict=process_verdict,
+            process_verdict="needs_review",
             pre_match_thesis=pre_match_thesis,
             post_match_explanation=post_match_explanation,
             variance=variance,
             lesson=ValidatedLesson(
                 lesson_id=uuid5(NAMESPACE_URL, f"miron-baba-ai:lesson:{lock.lock_id}"),
-                scope="football/pre-match/low-confidence-lineup-uncertainty",
+                scope="football/post-match/outcome-only-review",
                 statement=statement,
-                confidence=Decimal(".62"),
+                confidence=Decimal("0"),
                 supporting_lock_sha256=lock.manifest_sha256,
             ),
             created_at=now,

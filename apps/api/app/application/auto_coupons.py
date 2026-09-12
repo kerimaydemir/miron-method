@@ -1225,24 +1225,10 @@ class AutoCouponService:
         fixture: CanonicalFixture,
         status: str,
     ) -> DailyPredictionReviewItem:
-        market_consensus_only = (
-            prediction.market_fair_probability is not None
-            and abs(prediction.probability - prediction.market_fair_probability)
-            <= Decimal(".000001")
-        )
-        sound = (
-            not market_consensus_only
-            and prediction.confidence >= Decimal(".58")
-            and prediction.bookmaker_count >= 2
-        )
         market_result = cls._realized_market_summary(prediction, fixture)
         process_note = cls._process_review_note(prediction, status)
-        if status == "void" or market_consensus_only:
-            verdict = "insufficient_data"
-        elif status == "won":
-            verdict = "sound_win" if sound else "lucky_win"
-        else:
-            verdict = "sound_but_unlucky_loss" if sound else "bad_process_loss"
+        # Final scores and pre-match confidence cannot establish causal luck or process quality.
+        verdict = "insufficient_data"
         final_score = (
             f"{fixture.home_team} {fixture.home_score}-{fixture.away_score} {fixture.away_team}"
         )

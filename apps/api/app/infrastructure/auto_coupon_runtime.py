@@ -27,6 +27,7 @@ auto_coupon_repository = (
     if settings.PERSISTENCE_ENABLED
     else NullAutoCouponRepository()
 )
+coupon_funnel: GeminiCouponFunnel | None
 if settings.selected_ai_provider == "nvidia_nim":
     coupon_funnel = GeminiCouponFunnel(
         api_key=settings.NVIDIA_API_KEY.get_secret_value(),

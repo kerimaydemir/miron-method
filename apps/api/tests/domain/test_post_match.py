@@ -79,7 +79,10 @@ def test_post_match_separates_result_process_variance_and_lesson() -> None:
     )
     autopsy = service.ingest(lock, result)
     assert autopsy.result_verdict == "top_label_correct"
-    assert autopsy.process_verdict == "sound_but_uncertain"
+    assert autopsy.process_verdict == "needs_review"
+    assert len(autopsy.variance) == 1
+    assert autopsy.variance[0].weight == 1
+    assert autopsy.lesson.confidence == 0
     assert sum((item.weight for item in autopsy.variance), Decimal("0")) == 1
     assert autopsy.variance[-1].category == "unknown"
     assert autopsy.lesson.hindsight_safe is True

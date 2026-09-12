@@ -1018,7 +1018,7 @@ def test_daily_review_explains_totals_loss_with_line_and_final_goals() -> None:
 
     item = AutoCouponService._daily_review_item(prediction, finished_fixture, "lost")
 
-    assert item.process_verdict == "sound_but_unlucky_loss"
+    assert item.process_verdict == "insufficient_data"
     assert "Toplam gol 3; çizgi 2.5, gerçekleşen yön üst." in item.explanation
     assert "aynı market/çizgi kombinasyonunda tekrar eden hata aranır" in item.explanation
 
