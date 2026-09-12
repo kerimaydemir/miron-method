@@ -162,10 +162,9 @@ class NvidiaNimClient:
                     ) from None
                 await asyncio.sleep(0.5 * float(2**attempt))
                 continue
-            if response.status_code in {429, 500, 502, 503, 504}:
-                if attempt < self._MAX_ATTEMPTS - 1:
-                    await asyncio.sleep(self._retry_delay(response, attempt))
-                    continue
+            if response.status_code in {429, 500, 502, 503, 504} and attempt < self._MAX_ATTEMPTS - 1:
+                await asyncio.sleep(self._retry_delay(response, attempt))
+                continue
             if response.is_error:
                 raise self._safe_http_error(response)
             try:
