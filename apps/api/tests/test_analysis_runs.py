@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 
 from app.api.analysis_runs import service
 from app.api.post_match import service as post_match_service
-from app.application.analysis_runs import AnalysisRunService
+from app.application.analysis_runs import AnalysisRunService, _stage_time
 from app.domain.fixtures import CanonicalFixture
 from app.infrastructure.mock_fixture_provider import FIXTURES, MockFixtureProvider
 from app.main import app
@@ -31,6 +31,16 @@ class _BrokenFeatureFixtureProvider(MockFixtureProvider):
 class _SlowAnalyzer:
     async def analyze(self, *args, **kwargs):  # type: ignore[no-untyped-def]
         await asyncio.sleep(1)
+
+
+def test_stage_timing_uses_measured_call_and_rejects_unusable_timestamps() -> None:
+    fallback = datetime(2026, 9, 12, 12, tzinfo=UTC)
+    measured = datetime(2026, 9, 12, 12, 1, tzinfo=UTC)
+    output = {"model_call": {"started_at": measured.isoformat()}}
+    assert _stage_time(output, "started_at", fallback) == measured
+    for value in (None, "invalid", "2026-09-12T12:01:00"):
+        assert _stage_time({"model_call": {"started_at": value}}, "started_at", fallback) == fallback
+    assert _stage_time(None, "started_at", fallback) == fallback
 
 
 @pytest.mark.asyncio

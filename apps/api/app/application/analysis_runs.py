@@ -2,7 +2,7 @@ import asyncio
 import hashlib
 import logging
 from collections.abc import Callable
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import NAMESPACE_URL, UUID, uuid5
 
@@ -168,6 +168,8 @@ class AnalysisRunService:
                 raise RuntimeError("AI_ANALYSIS_TIMED_OUT") from error
             stage_summaries = model_result.stage_summaries if model_result else {}
             stage_costs = model_result.stage_costs if model_result else {}
+            stage_outputs = model_result.stage_outputs if model_result else {}
+            analysis_completed_at = self.clock()
             completed_stage_ids = {"S00", "S30", *stage_summaries}
             stages = tuple(
                 StageView(
@@ -178,11 +180,16 @@ class AnalysisRunService:
                         stage_id,
                         self._summary(stage_id, live_model=model_result is not None),
                     ),
-                    started_at=now + timedelta(milliseconds=index * 3),
-                    completed_at=now + timedelta(milliseconds=index * 3 + 2),
+                    started_at=_stage_time(stage_outputs.get(stage_id), "started_at", now),
+                    completed_at=(
+                        _stage_time(
+                            stage_outputs.get(stage_id), "completed_at", analysis_completed_at
+                        )
+                        if stage_id in completed_stage_ids else None
+                    ),
                     cost_usd=stage_costs.get(stage_id, Decimal("0")),
                 )
-                for index, (stage_id, name) in enumerate(PRE_MATCH_STAGES)
+                for stage_id, name in PRE_MATCH_STAGES
             )
             forecast = (
                 model_result.forecast if model_result else self._mock_forecast(fixture.id, now)
@@ -364,6 +371,22 @@ class AnalysisRunService:
             ),
             dissent_summary=("Beraberlik senaryosu düşük tempoda güçleniyor",),
         )
+
+
+def _stage_time(
+    output: dict[str, object] | None, field: str, fallback: datetime,
+) -> datetime:
+    # Shared model calls share their measured timestamps, not invented per-stage durations.
+    call = (output or {}).get("model_call")
+    value = call.get(field) if isinstance(call, dict) else None
+    if isinstance(value, str):
+        try:
+            parsed = datetime.fromisoformat(value)
+            if parsed.tzinfo is not None:
+                return parsed
+        except ValueError:
+            pass
+    return fallback
 
 
 def utc_now() -> datetime:
