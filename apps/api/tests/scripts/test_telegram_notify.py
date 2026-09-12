@@ -53,6 +53,7 @@ def test_post_match_message_contains_learning_summary() -> None:
             "performance": {
                 "settled": 12,
                 "wins": 7,
+                "losses": 5,
                 "hit_rate": "0.5833",
             },
             "ticket_reviews": [
@@ -90,7 +91,7 @@ def test_post_match_message_contains_learning_summary() -> None:
     assert "Kupon sonucu:" in message
     assert "Günlük ikili | toplam oran 2.04" in message
     assert "Valencia - Sevilla" in message
-    assert "Genel: 7/12 | %58.3" in message
+    assert "Tek seçimler (kupon değil): 7 kazandı / 5 kaybetti | 58.3%" in message
     assert "Neden:" not in message
 
 

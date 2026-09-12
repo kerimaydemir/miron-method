@@ -164,8 +164,9 @@ def build_post_match_message(report: Mapping[str, object]) -> str:
             )
     if performance:
         lines.append(
-            f"Genel: {_text(performance.get('wins'), '0')}/"
-            f"{_text(performance.get('settled'), '0')} | %{_percent(performance.get('hit_rate')).rstrip('%')}"
+            f"Tek seçimler (kupon değil): {_text(performance.get('wins'), '0')} kazandı / "
+            f"{_text(performance.get('losses'), '0')} kaybetti | "
+            f"{_percent(performance.get('hit_rate'))}"
         )
     return "\n".join(lines).strip()
 

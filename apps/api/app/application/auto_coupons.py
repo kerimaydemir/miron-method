@@ -333,6 +333,7 @@ class AutoCouponService:
             except KeyError:
                 audit["coverage"] = {}
             analysis_audit.append(audit)
+            analysis_cost += locked.actual_cost_usd
             best = self._best_market_selection(market, locked.forecast, candidate.fixture, now)
             if best is None:
                 audit["selection_result"] = "value_gate_rejected"
@@ -398,7 +399,6 @@ class AutoCouponService:
                     ),
                 )
             )
-            analysis_cost += locked.actual_cost_usd
 
         ordered_candidates = tuple(
             sorted(
